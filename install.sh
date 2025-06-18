@@ -1197,7 +1197,7 @@ cat > /root/XtreamCodes_Enhanced_Info.txt << EOL
 │ Backup: /home/xtreamcodes/iptv_xtream_codes/backup_system.sh
 │
 │ Installation completed: $(date)
-│ Enhanced by: dOC4eVER + AI Assistant
+│ Enhanced by: Stefan2512
 │
 └──────────────────────────────────────────────────────────────────────────┘
 EOL
