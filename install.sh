@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# XtreamCodes Enhanced Final Installer - Stefan Edition
+# XtreamCodes Enhanced Final Installer - Stefan Edition 
 # =============================================
 # Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
 # Version: 1.0 - Bullet-proof installer
@@ -74,7 +74,7 @@ clear
 echo ""
 echo "┌─────────────────────────────────────────────────────────────────────┐"
 echo "│             XtreamCodes Enhanced Installer - Stefan Edition        │"
-echo "│                           Version 1.0                              │"
+echo "│                           Version 1.0  @2025                       │"
 echo "└─────────────────────────────────────────────────────────────────────┘"
 echo ""
 echo "🚀 Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
@@ -174,11 +174,6 @@ if [[ "$silent" != "yes" ]]; then
     if [[ "$tz" == "" ]]; then
         tz="Europe/Bucharest"
         echo "🕐 Setting timezone to Europe/Bucharest (default)"
-        echo $tz > /etc/timezone
-        rm -f /etc/localtime
-        ln -s /usr/share/zoneinfo/$tz /etc/localtime
-        timedatectl set-timezone $tz 2>/dev/null
-        echo "✅ Timezone configured"
     fi
 
     echo ""
@@ -186,44 +181,56 @@ if [[ "$silent" != "yes" ]]; then
     echo ""
 
     if [[ "$adminL" == "" ]]; then
-        read -p "👤 Admin username: " adminL
+        echo -n "👤 Admin username [admin]: "
+        read adminL
+        adminL=${adminL:-"admin"}
     fi
 
     if [[ "$adminP" == "" ]]; then
-        read -s -p "🔒 Admin password: " adminP
-        echo ""
+        echo -n "🔒 Admin password [admin123]: "
+        read adminP
+        adminP=${adminP:-"admin123"}
     fi
 
     if [[ "$EMAIL" == "" ]]; then
-        read -p "📧 Admin email: " EMAIL
+        echo -n "📧 Admin email [admin@example.com]: "
+        read EMAIL
+        EMAIL=${EMAIL:-"admin@example.com"}
     fi
 
     if [[ "$PASSMYSQL" == "" ]]; then
-        read -s -p "🗄️  MySQL root password: " PASSMYSQL
-        echo ""
+        echo -n "🗄️  MySQL root password [mysql123]: "
+        read PASSMYSQL
+        PASSMYSQL=${PASSMYSQL:-"mysql123"}
     fi
 
     echo ""
     echo "🔧 Port configuration (press Enter for defaults):"
+    
     if [[ "$ACCESPORT" == "" ]]; then
-        read -p "🌐 Admin panel port [2086]: " ACCESPORT
+        echo -n "🌐 Admin panel port [2086]: "
+        read ACCESPORT
         ACCESPORT=${ACCESPORT:-2086}
     fi
 
     if [[ "$CLIENTACCESPORT" == "" ]]; then
-        read -p "📡 Client access port [5050]: " CLIENTACCESPORT
+        echo -n "📡 Client access port [5050]: "
+        read CLIENTACCESPORT
         CLIENTACCESPORT=${CLIENTACCESPORT:-5050}
     fi
 
     if [[ "$APACHEACCESPORT" == "" ]]; then
-        read -p "🔧 Apache port [3672]: " APACHEACCESPORT
+        echo -n "🔧 Apache port [3672]: "
+        read APACHEACCESPORT
         APACHEACCESPORT=${APACHEACCESPORT:-3672}
     fi
 
     echo ""
-    read -p "🚀 Ready to install XtreamCodes Enhanced? (y/n): " yn
+    echo -n "🚀 Ready to install XtreamCodes Enhanced? [Y/n]: "
+    read yn
+    yn=${yn:-"y"}
     case $yn in
-        [Yy]*) ;;
+        [Yy]*|"") ;;
         *) echo "❌ Installation cancelled"; exit 0;;
     esac
 else
@@ -241,7 +248,7 @@ else
     echo "📋 Using default configuration with Europe/Bucharest timezone"
 fi
 
-# Set timezone
+# Set timezone regardless of mode
 echo $tz > /etc/timezone
 rm -f /etc/localtime
 ln -s /usr/share/zoneinfo/$tz /etc/localtime
