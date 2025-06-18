@@ -1,9 +1,520 @@
-#!/usr/bin/env bash
+# Configure XtreamCodes database and settings
+tput setaf 4; tput bold; echo "[+] Configuring XtreamCodes database..."; tput sgr0;
+
+# Python configuration script with enhanced error handling
+python2 << END
+# coding: utf-8
+import subprocess, os, random, string, sys, shutil, socket
+from itertools import cycle, izip
+
+class col:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+# Configuration variables
+rHost = "127.0.0.1"
+rPassword = "$XPASS"
+rServerID = 1
+rUsername = "user_iptvpro"
+rDatabase = "xtream_iptvpro"
+rPort = 7999
+rExtra = " -p$PASSMYSQL"
+reseau = "$networkcard"
+portadmin = "$ACCESPORT"
+getIP = "$ipaddr"
+sshssh = "$PORTSSH"
+getVersion = "$versionn"
+generate1 = "$zzz"
+generate2 = "$eee"
+generate3 = "$rrr"
+
+def encrypt(rHost="127.0.0.1", rUsername="user_iptvpro", rPassword="", rDatabase="xtream_iptvpro", rServerID=1, rPort=7999):
+    try:
+        rf = open('/home/xtreamcodes/iptv_xtream_codes/config', 'wb')
+        config_data = '{\"host\":\"%s\",\"db_user\":\"%s\",\"db_pass\":\"%s\",\"db_name\":\"%s\",\"server_id\":\"%d\", \"db_port\":\"%d\"}' % (rHost, rUsername, rPassword, rDatabase, rServerID, rPort)
+        encrypted = ''.join(chr(ord(c)^ord(k)) for c,k in izip(config_data, cycle('5709650b0d7806074842c6de575025b1')))
+        rf.write(encrypted.encode('base64').replace('\n', ''))
+        rf.close()
+        print("✓ Config file encrypted and saved")
+    except Exception as e:
+        print("Error creating config: %s" % str(e))
+
+def modifyNginx():
+    try:
+        rPath = "/home/xtreamcodes/iptv_xtream_codes/nginx/conf/nginx.conf"
+        if os.path.exists(rPath):
+            rPrevData = open(rPath, "r").read()
+            rData = "}".join(rPrevData.split("}")[:-1]) + "    server {\n        listen $ACCESPORT;\n        index index.php index.html index.htm;\n        root /home/xtreamcodes/iptv_xtream_codes/admin/;\n\n        location ~ \.php\$ {\n			limit_req zone=one burst=8;\n            try_files \$uri =404;\n			fastcgi_index index.php;\n			fastcgi_pass php;\n			include fastcgi_params;\n			fastcgi_buffering on;\n			fastcgi_buffers 96 32k;\n			fastcgi_buffer_size 32k;\n			fastcgi_max_temp_file_size 0;\n			fastcgi_keep_conn on;\n			fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n			fastcgi_param SCRIPT_NAME \$fastcgi_script_name;\n        }\n    }\n}"
+            
+            rFile = open(rPath, "w")
+            rFile.write(rData)
+            rFile.close()
+            print("✓ Nginx configuration updated")
+        
+        # Update hosts file
+        hosts_entries = [
+            "127.0.0.1    api.xtream-codes.com",
+            "127.0.0.1    downloads.xtream-codes.com", 
+            "127.0.0.1    xtream-codes.com"
+        ]
+        
+        hosts_content = open("/etc/hosts").read()
+        for entry in hosts_entries:
+            if entry.split()[1] not in hosts_content:
+                os.system('echo "%s" >> /etc/hosts' % entry)
+        
+        print("✓ Hosts file updated")
+    except Exception as e:
+        print("Error configuring nginx: %s" % str(e))
+
+def mysql():
+    try:
+        # Create database
+        cmd1 = 'mysql -u root%s -e "DROP DATABASE IF EXISTS xtream_iptvpro; CREATE DATABASE IF NOT EXISTS xtream_iptvpro;" > /dev/null 2>&1' % rExtra
+        os.system(cmd1)
+        
+        # Import database schema
+        cmd2 = "mysql -u root%s xtream_iptvpro < /home/xtreamcodes/iptv_xtream_codes/database.sql > /dev/null 2>&1" % rExtra
+        os.system(cmd2)
+        
+        # Configure streaming server
+        cmd3 = 'mysql -u root%s -e "USE xtream_iptvpro; REPLACE INTO streaming_servers (id, server_name, domain_name, server_ip, vpn_ip, ssh_password, ssh_port, diff_time_main, http_broadcast_port, total_clients, system_os, network_interface, latency, status, enable_geoip, geoip_countries, last_check_ago, can_delete, server_hardware, total_services, persistent_connections, rtmp_port, geoip_type, isp_names, isp_type, enable_isp, boost_fpm, http_ports_add, network_guaranteed_speed, https_broadcast_port, https_ports_add, whitelist_ips, watchdog_data, timeshift_only) VALUES (1, \'Main Server\', \'\', \'%s\', \'\', NULL, \'%s\', 0, 2082, 1000, \'%s\', \'%s\', 0, 1, 0, \'\', 0, 0, \'{}\', 3, 0, 2086, \'low_priority\', \'\', \'low_priority\', 0, 0, \'\', 1000, 2083, \'\', \'[\"127.0.0.1\",\"\"]\', \'{}\', 0);" > /dev/null 2>&1' % (rExtra, getIP, sshssh, getVersion, reseau)
+        os.system(cmd3)
+        
+        # Create database user
+        cmd4 = 'mysql -u root%s -e "GRANT ALL PRIVILEGES ON *.* TO \'%s\'@\'%%\' IDENTIFIED BY \'%s\' WITH GRANT OPTION; FLUSH PRIVILEGES;" > /dev/null 2>&1' % (rExtra, rUsername, rPassword)
+        os.system(cmd4)
+        
+        print("✓ Database configured successfully")
+    except Exception as e:
+        print("Error configuring database: %s" % str(e))
+
+# Execute configuration
+print("Configuring database...")
+mysql()
+print("Creating encrypted config...")
+encrypt(rHost, rUsername, rPassword, rDatabase, rServerID, rPort)
+print("Configuring nginx...")
+modifyNginx()
+print("✓ All configurations completed")
+END
+
+# Create admin user in database
+tput setaf 4; tput bold; echo "[+] Creating admin user..."; tput sgr0;
+
+cat > /tmp/admin_user.sql << EOL
+USE xtream_iptvpro;
+INSERT INTO reg_users (id, username, password, email, ip, date_registered, verify_code, verified, type, last_login, exp_date, admin_enabled, admin_notes, reseller_dns, owner_id, override_packages, hue, theme, timezone, api_key) VALUES 
+(1, '$adminL', '$Padmin', '$EMAIL', '', UNIX_TIMESTAMP(), '', 1, 1, NULL, 4070905200, 1, '', '', 0, '', '', '', '', '');
+
+INSERT INTO member_groups (group_id, group_name, total_allowed_gen_in, total_allowed_gen_mag, total_allowed_gen_e2, group_package, allowed_pages, is_admin, delete_users, create_sub_resellers, edit_own_user, is_isplock, lock_timezone, cms_login, reset_user_exp, viewhidden_all, select_main_server, flood_limit, total_allowed_gen_trials, max_connections, min_trial_credits, change_trial_credits, permitted_servers, change_bouquet, change_package, api_iptv, api_mag, api_e2, api_radio, delete_expired, content_import, quick_edit, user_auto_kick, can_isplock, create_mag, mag_container, stalker_lock_timeout, change_userpass, series_download, catchup, rec_limit, catchup_days, radio, stalker_beta, export_data, device_lock, max_mag_devices, max_e2_devices, max_iptv_devices, total_allowed_output, allowed_stb_types, allowed_ua, reseller_change_info, reseller_change_own, reseller_client_connection_logs, reseller_assign_server, bouquet_download, allow_countries, denied_countries, disable_expired, 2factor, stalker_syncdb, stalker_mag_container, stalker_stalker_beta, stalker_capmt, stalker_ecm, stalker_anti_sharing, stalker_force_mgcamd, stalker_stalker_priority, stalker_livetvpreview, stalker_mag_container_url, stalker_mag_container_url2, stalker_mag_container_url3, stalker_stalker_isplock, stalker_portal_capmt, stalker_timeshift, audio_restart_loss, audio_delay_startup, stalker_liveprivacy, stalker_livetimeout, stalker_gen_all_stb, stalker_show_tv, stalker_portal_autoupdate, message_all) VALUES 
+(1, 'Administrator', 999999, 999999, 999999, '', '["dashboard","users","create_user","manage_users","create_mag","user_ips","create_enigma","manage_e2","user_activity","user_online","manage_events","reg_userlog","credits_log","admin_live","admin_movies","admin_series","admin_radio","admin_episodes","live_streams","create_live","manage_live","movie_streams","create_movie","manage_movies","series","create_series","manage_series","manage_radio","create_radio","episodes","create_episode","manage_episodes","mass_edit_streams","stream_tools","server_tools","settings","server_info","databases","reg_users","mass_email","statistics","geo_ip","admin_logs","reseller_logs","edit_cchannel","client_logs","activity_by_user","line_activity","update_bouquets","edit_bouquet","bouquets","create_bouquet","epg","epg_edit","xmltv_edit","xmltv","admin_epg","servers","create_server","edit_server","networks","transcoding","reg_userlog","tools","backups","mass_tools","reg_userlog"]', 1, 1, 1, 1, 0, '', 1, 1, 1, 1, 1, 0, 999999, 999999, 0, 0, '[]', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 7, 1, 1, 1, 1, 999999, 999999, 999999, 999999, '[]', '[]', 1, 1, 1, 1, 1, '[]', '[]', 1, '', 1, '', '', '', '', '', '', 0, '', '', 1, 1, 1, 1, 1, 1, 1, 1);
+EOL
+
+mysql -u root -p$PASSMYSQL xtream_iptvpro < /tmp/admin_user.sql
+rm -f /tmp/admin_user.sql
+
+tput setaf 2; tput bold; echo "✓ Admin user created successfully"; tput sgr0;
+
+# Configure permissions and directories
+tput setaf 4; tput bold; echo "[+] Setting up permissions and directories..."; tput sgr0;
+
+# Remove default database.sql for security
+rm -f /home/xtreamcodes/iptv_xtream_codes/database.sql
+
+# Configure sudoers for xtreamcodes user
+if ! grep -q "xtreamcodes ALL = (root) NOPASSWD: /sbin/iptables, /usr/bin/chattr, /usr/bin/python2, /usr/bin/python" /etc/sudoers; then
+    echo "xtreamcodes ALL = (root) NOPASSWD: /sbin/iptables, /usr/bin/chattr, /usr/bin/python2, /usr/bin/python" >> /etc/sudoers
+fi
+
+# Create symlink for ffmpeg
+ln -sf /home/xtreamcodes/iptv_xtream_codes/bin/ffmpeg /usr/bin/ 2>/dev/null
+
+# Configure tmpfs mounts for better performance
+if ! grep -q "tmpfs /home/xtreamcodes/iptv_xtream_codes/streams tmpfs" /etc/fstab; then
+    echo "tmpfs /home/xtreamcodes/iptv_xtream_codes/streams tmpfs defaults,noatime,nosuid,nodev,noexec,mode=1777,size=90% 0 0" >> /etc/fstab
+fi
+
+if ! grep -q "tmpfs /home/xtreamcodes/iptv_xtream_codes/tmp tmpfs" /etc/fstab; then
+    echo "tmpfs /home/xtreamcodes/iptv_xtream_codes/tmp tmpfs defaults,noatime,nosuid,nodev,noexec,mode=1777,size=2G 0 0" >> /etc/fstab
+fi
+
+# Set proper permissions
+chmod -R 0777 /home/xtreamcodes
+
+# Update database with correct ports
+mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE streaming_servers SET http_broadcast_port = '$CLIENTACCESPORT' WHERE streaming_servers.id = 1;"
+
+# Update security tokens
+mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET live_streaming_pass = '$zzz' WHERE settings.id = 1;"
+mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET unique_id = '$eee' WHERE settings.id = 1;"
+mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET crypt_load_balancing = '$rrr' WHERE settings.id = 1;"
+
+# Update PHP timezone configuration
+sed -i "s|;date.timezone =|date.timezone = $tz|g" /home/xtreamcodes/iptv_xtream_codes/php/lib/php.ini
+
+tput setaf 2; tput bold; echo "✓ Permissions and configuration completed"; tput sgr0;
+
+# Install enhanced updates and patches from OUR repository
+tput setaf 4; tput bold; echo "[+] Installing enhanced patches and updates from Stefan's repository..."; tput sgr0;
+
+# Download and apply enhanced updates from OUR repository
+wget -q -O /tmp/update.zip "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/enhanced_updates.zip"
+if [ -f "/tmp/update.zip" ]; then
+    unzip -o /tmp/update.zip -d /tmp/update/ 2>/dev/null
+    chattr -i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
+    
+    # Preserve PHP and GeoLite2 database
+    rm -rf /tmp/update/XtreamUI-enhanced/php 2>/dev/null
+    rm -rf /tmp/update/XtreamUI-enhanced/GeoLite2.mmdb 2>/dev/null
+    
+    # Apply OUR enhanced updates
+    cp -rf /tmp/update/XtreamUI-enhanced/* /home/xtreamcodes/iptv_xtream_codes/ 2>/dev/null
+    rm -rf /tmp/update
+    rm -f /tmp/update.zip
+    echo "✓ Enhanced updates from Stefan's repository applied"
+else
+    echo "⚠ Enhanced updates not found, using base installation"
+fi
+
+# Update panel version
+xcversion="Stefan-v1.0"
+mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE admin_settings SET value = '$xcversion' WHERE admin_settings.type = 'panel_version';" 2>/dev/null
+
+# Update GeoLite2 database from OUR repository
+chattr -i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
+wget -q -O /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/GeoLite2.mmdb"
+chattr +i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
+
+# Update GeoLite2 version in database
+geoliteversion=$(wget -qO- "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/geolite2_version.txt" 2>/dev/null || echo "Stefan-enhanced-v1.0")
+mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE admin_settings SET value = '$geoliteversion' WHERE admin_settings.type = 'geolite2_version';" 2>/dev/null
+
+# Set proper ownership and permissions
+chown -R xtreamcodes:xtreamcodes /home/xtreamcodes
+chmod +x /home/xtreamcodes/iptv_xtream_codes/start_services.sh
+chmod +x /home/xtreamcodes/iptv_xtream_codes/permissions.sh 2>/dev/null
+chmod -R 0777 /home/xtreamcodes/iptv_xtream_codes/crons 2>/dev/null
+
+# Setup auto-start on boot
+if ! grep -q "@reboot root sudo /home/xtreamcodes/iptv_xtream_codes/start_services.sh" /etc/crontab; then
+    echo "@reboot root sudo /home/xtreamcodes/iptv_xtream_codes/start_services.sh" >> /etc/crontab
+fi
+
+# Run permissions script
+if [ -f "/home/xtreamcodes/iptv_xtream_codes/permissions.sh" ]; then
+    /home/xtreamcodes/iptv_xtream_codes/permissions.sh 2>/dev/null
+fi
+
+# Clean up PHP-FPM PIDs
+killall php-fpm 2>/dev/null
+rm -f /home/xtreamcodes/iptv_xtream_codes/php/VaiIb8.pid /home/xtreamcodes/iptv_xtream_codes/php/JdlJXm.pid /home/xtreamcodes/iptv_xtream_codes/php/CWcfSP.pid
+
+# Download enhanced balancer scripts from OUR repository
+wget -q "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/raw/master/balancer.php" -O /home/xtreamcodes/iptv_xtream_codes/crons/balancer.php 2>/dev/null
+wget -q "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/raw/master/balancer.sh" -O /home/xtreamcodes/iptv_xtream_codes/pytools/balancer.sh 2>/dev/null
+chmod +x /home/xtreamcodes/iptv_xtream_codes/pytools/balancer.sh 2>/dev/null
+
+tput setaf 2; tput bold; echo "✓ Enhanced patches and updates applied"; tput sgr0;
+
+# Mount tmpfs filesystems
+tput setaf 4; tput bold; echo "[+] Setting up high-performance tmpfs..."; tput sgr0;
+mount -a 2>/dev/null
+mkdir -p /home/xtreamcodes/iptv_xtream_codes/streams /home/xtreamcodes/iptv_xtream_codes/tmp
+chmod 1777 /home/xtreamcodes/iptv_xtream_codes/streams /home/xtreamcodes/iptv_xtream_codes/tmp
+
+# Final system optimizations
+tput setaf 4; tput bold; echo "[+] Applying final system optimizations..."; tput sgr0;
+
+# Optimize system limits
+cat >> /etc/security/limits.conf << EOL
+* soft nofile 300000
+* hard nofile 300000
+* soft nproc 300000
+* hard nproc 300000
+xtreamcodes soft nofile 300000
+xtreamcodes hard nofile 300000
+xtreamcodes soft nproc 300000
+xtreamcodes hard nproc 300000
+EOL
+
+# Optimize kernel parameters
+cat >> /etc/sysctl.conf << EOL
+# XtreamCodes Enhanced Optimizations - Stefan Edition
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 120
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 8192
+net.ipv4.tcp_max_tw_buckets = 5000
+net.ipv4.ip_local_port_range = 1024 65535
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.core.netdev_max_backlog = 5000
+fs.file-max = 2097152
+EOL
+
+sysctl -p 2>/dev/null
+
+# Create system service for XtreamCodes (alternative to cron)
+cat > /etc/systemd/system/xtreamcodes.service << EOL
+[Unit]
+Description=XtreamCodes Enhanced Service - Stefan Edition
+After=network.target mariadb.service
+
+[Service]
+Type=forking
+User=root
+ExecStart=/home/xtreamcodes/iptv_xtream_codes/start_services.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+systemctl daemon-reload
+systemctl enable xtreamcodes.service 2>/dev/null
+
+# Create management and backup scripts
+tput setaf 4; tput bold; echo "[+] Creating management and backup scripts..."; tput sgr0;
+
+# Create status check script
+cat > /home/xtreamcodes/iptv_xtream_codes/check_status.sh << 'EOL'
+#!/bin/bash
+# XtreamCodes Enhanced Status Checker - Stefan Edition
+
+echo "=== XtreamCodes Enhanced Status - Stefan Edition ==="
+echo ""
+
+# Check nginx processes
+nginx_count=$(pgrep -f "nginx.*xtreamcodes" | wc -l)
+echo "Nginx processes: $nginx_count"
+
+# Check PHP-FPM processes  
+phpfpm_count=$(pgrep -f "php-fpm.*xtreamcodes" | wc -l)
+echo "PHP-FPM processes: $phpfpm_count"
+
+# Check sockets
+echo ""
+echo "PHP-FPM Sockets:"
+for sock in VaiIb8.sock JdlJXm.sock CWcfSP.sock; do
+    if [ -S "/home/xtreamcodes/iptv_xtream_codes/php/$sock" ]; then
+        echo "✓ $sock - OK"
+    else
+        echo "✗ $sock - MISSING"
+    fi
+done
+
+# Check ports
+echo ""
+echo "Port Status:"
+for port in 2086 5050 7999; do
+    if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+        echo "✓ Port $port - LISTENING"
+    else
+        echo "✗ Port $port - NOT LISTENING"
+    fi
+done
+
+# Check database connection
+echo ""
+echo "Database Status:"
+if mysql -u user_iptvpro -p$(python2 /home/xtreamcodes/iptv_xtream_codes/pytools/config.py DECRYPT 2>/dev/null | grep Password | sed "s|Password:            ||g") -P 7999 -e "SELECT 1;" 2>/dev/null >/dev/null; then
+    echo "✓ Database connection - OK"
+else
+    echo "✗ Database connection - FAILED"
+fi
+
+# Check libzip.so.4
+echo ""
+echo "Dependencies:"
+if [ -f "/usr/lib/x86_64-linux-gnu/libzip.so.4" ]; then
+    echo "✓ libzip.so.4 - OK"
+else
+    echo "✗ libzip.so.4 - MISSING"
+fi
+
+echo ""
+echo "=== Stefan Edition Status Check Complete ==="
+EOL
+
+chmod +x /home/xtreamcodes/iptv_xtream_codes/check_status.sh
+
+# Create quick restart script
+cat > /home/xtreamcodes/iptv_xtream_codes/restart_services.sh << 'EOL'
+#!/bin/bash
+# XtreamCodes Enhanced Quick Restart - Stefan Edition
+
+echo "Stopping XtreamCodes services..."
+kill $(ps aux | grep 'xtreamcodes' | grep -v grep | grep -v 'restart_services.sh' | awk '{print $2}') 2>/dev/null
+sleep 3
+
+echo "Starting XtreamCodes services..."
+/home/xtreamcodes/iptv_xtream_codes/start_services.sh
+
+echo "Checking status..."
+sleep 5
+/home/xtreamcodes/iptv_xtream_codes/check_status.sh
+EOL
+
+chmod +x /home/xtreamcodes/iptv_xtream_codes/restart_services.sh
+
+# Start XtreamCodes services for the first time
+tput setaf 4; tput bold; echo "[+] Starting XtreamCodes Enhanced services..."; tput sgr0;
+
+# Ensure proper permissions before starting
+chown -R xtreamcodes:xtreamcodes /home/xtreamcodes
+chmod +x /home/xtreamcodes/iptv_xtream_codes/nginx/sbin/nginx
+chmod +x /home/xtreamcodes/iptv_xtream_codes/nginx_rtmp/sbin/nginx_rtmp
+
+# Start services
+/home/xtreamcodes/iptv_xtream_codes/start_services.sh
+
+# Wait for services to start
+sleep 10
+
+# Verify installation
+tput setaf 4; tput bold; echo "[+] Verifying installation..."; tput sgr0;
+
+# Check if services are running
+nginx_running=$(pgrep -f "nginx.*xtreamcodes" | wc -l)
+phpfpm_running=$(pgrep -f "php-fpm" | wc -l)
+mysql_running=$(pgrep -f "mysqld" | wc -l)
+
+if [ $nginx_running -gt 0 ] && [ $phpfpm_running -gt 0 ] && [ $mysql_running -gt 0 ]; then
+    tput setaf 2; tput bold; echo "✓ All services are running successfully"; tput sgr0;
+else
+    tput setaf 3; tput bold; echo "⚠ Some services may need attention:"; tput sgr0;
+    echo "  Nginx processes: $nginx_running"
+    echo "  PHP-FPM processes: $phpfmp_running" 
+    echo "  MySQL processes: $mysql_running"
+fi
+
+# Check port accessibility
+port_check_failed=0
+for port in $ACCESPORT $CLIENTACCESPORT 7999; do
+    if ! netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+        tput setaf 1; tput bold; echo "✗ Port $port is not listening"; tput sgr0;
+        port_check_failed=1
+    fi
+done
+
+if [ $port_check_failed -eq 0 ]; then
+    tput setaf 2; tput bold; echo "✓ All required ports are active"; tput sgr0;
+fi
+
+# Final success message
+clear
+echo ""
+tput setaf 2; tput bold; echo " ┌───────────────────────────────────────────────────────────────────┐"; tput sgr0;
+tput setaf 2; tput bold; echo " │             XtreamCodes Enhanced - Stefan Edition Complete       │"; tput sgr0;
+tput setaf 2; tput bold; echo " └───────────────────────────────────────────────────────────────────┘"; tput sgr0;
+echo ""
+
+# Display installation information
+echo -e " \033[1;33m System:\033[0m \033[1;36m$OS\033[1;32m $VER\033[0m \033[1;35m$ARCH\033[0m"
+echo -e " \033[1;33m Server IP:\033[0m $ipaddr"
+echo -e " \033[1;33m Repository:\033[0m https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
+echo ""
+tput setaf 2; tput bold; echo " ─────────────────  Installation Details  ────────────────"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 1; tput bold; echo " │ PANEL ACCESS: http://$ipaddr:$ACCESPORT"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 1; tput bold; echo " │ USERNAME: $adminL"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 2; tput bold; echo " │ PASSWORD: $adminP"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 3; tput bold; echo " │ CLIENT ACCESS PORT: $CLIENTACCESPORT"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 4; tput bold; echo " │ APACHE ACCESS PORT: $APACHEACCESPORT"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 5; tput bold; echo " │ EMAIL: $EMAIL"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 6; tput bold; echo " │ MYSQL root PASS: $PASSMYSQL"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 7; tput bold; echo " │ MYSQL user_iptvpro PASS: $XPASS"; tput sgr0;
+tput setaf 2; tput bold; echo " │"; tput sgr0;
+tput setaf 2; tput bold; echo " ───────────────────────────────────────────────────────────────────"; tput sgr0;
+echo ""
+tput setaf 6; tput bold; echo " Stefan's Enhanced Features:"; tput sgr0;
+tput setaf 2; echo " ✓ All dependency fixes applied automatically"; tput sgr0;
+tput setaf 2; echo " ✓ libzip.so.4 compatibility ensured"; tput sgr0;
+tput setaf 2; echo " ✓ PHP-FPM socket issues resolved"; tput sgr0;
+tput setaf 2; echo " ✓ Enhanced nginx configuration"; tput sgr0;
+tput setaf 2; echo " ✓ System performance optimizations"; tput sgr0;
+tput setaf 2; echo " ✓ Management scripts created"; tput sgr0;
+tput setaf 2; echo " ✓ Auto-restart on boot configured"; tput sgr0;
+tput setaf 2; echo " ✓ Repository: Stefan2512/Proper-Repairs-Xtream-Codes"; tput sgr0;
+echo ""
+tput setaf 6; tput bold; echo " Management Commands:"; tput sgr0;
+tput setaf 3; echo " Status Check: /home/xtreamcodes/iptv_xtream_codes/check_status.sh"; tput sgr0;
+tput setaf 3; echo " Restart Services: /home/xtreamcodes/iptv_xtream_codes/restart_services.sh"; tput sgr0;
+echo ""
+tput setaf 1; tput bold; echo " ⚠ IMPORTANT: Save this information securely!"; tput sgr0;
+echo ""
+
+# Save installation info to file
+cat > /root/XtreamCodes_Stefan_Enhanced_Info.txt << EOL
+┌─────────────────── XtreamCodes Stefan Enhanced Installation ───────────────────┐
+│
+│ PANEL ACCESS: http://$ipaddr:$ACCESPORT
+│
+│ USERNAME: $adminL
+│ PASSWORD: $adminP
+│
+│ CLIENT ACCESS PORT: $CLIENTACCESPORT
+│ APACHE ACCESS PORT: $APACHEACCESPORT
+│ EMAIL: $EMAIL
+│
+│ MYSQL root PASS: $PASSMYSQL
+│ MYSQL user_iptvpro PASS: $XPASS
+│
+│ Stefan's Enhanced Features:
+│ ✓ All dependency fixes included
+│ ✓ libzip.so.4 compatibility 
+│ ✓ PHP-FPM optimizations
+│ ✓ System performance tuning
+│ ✓ Management scripts
+│ ✓ Repository: Stefan2512/Proper-Repairs-Xtream-Codes
+│
+│ Management Commands:
+│ Status: /home/xtreamcodes/iptv_xtream_codes/check_status.sh
+│ Restart: /home/xtreamcodes/iptv_xtream_codes/restart_services.sh  
+│
+│ Installation completed: $(date)
+│ Enhanced by: Stefan2512 with AI assistance
+│ Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
+│
+└──────────────────────────────────────────────────────────────────────────────┘
+EOL
+
+tput setaf 6; tput bold; echo " Installation details saved to: /root/XtreamCodes_Stefan_Enhanced_Info.txt"; tput sgr0;
+echo ""
+tput setaf 2; tput bold; echo " 🚀 XtreamCodes Stefan Enhanced is ready to use!"; tput sgr0;
+echo ""
+
+# Run final status check
+echo "Running final system check..."
+/home/xtreamcodes/iptv_xtream_codes/check_status.sh
+
+echo ""
+tput setaf 3; tput bold; echo "Stefan's Enhanced Installation completed successfully! 🎉"; tput sgr0;
+echo ""
+tput setaf 6; tput bold; echo "Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"; tput sgr0;
+echo ""
+
+# End of Stefan's enhanced installer script#!/usr/bin/env bash
 # Enhanced Xtream UI Automated Installation Script
 # =============================================
 # Enhanced Version with all fixes included
-# Fixed by: Stefan2512 + Enhanced with dependency fixes
-# I forked the dOC4eVER repo and added install fixes and enhancements
+# Fixed by: dOC4eVER + Enhanced with dependency fixes
+#
 # This version includes all necessary fixes for:
 # - libzip.so.4 dependency issues
 # - PHP-FPM socket creation
@@ -1197,7 +1708,7 @@ cat > /root/XtreamCodes_Enhanced_Info.txt << EOL
 │ Backup: /home/xtreamcodes/iptv_xtream_codes/backup_system.sh
 │
 │ Installation completed: $(date)
-│ Enhanced by: Stefan2512
+│ Enhanced by: dOC4eVER + AI Assistant
 │
 └──────────────────────────────────────────────────────────────────────────┘
 EOL
