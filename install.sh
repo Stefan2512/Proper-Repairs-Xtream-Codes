@@ -170,14 +170,15 @@ echo ""
 
 # Get user input
 if [[ "$silent" != "yes" ]]; then
-    # Configure timezone
+    # Set default timezone to Europe/Bucharest
     if [[ "$tz" == "" ]]; then
-        echo "🕐 Setting up timezone..."
-        apt-get -yqq install tzdata >/dev/null 2>&1
-        DEBIAN_FRONTEND=dialog dpkg-reconfigure tzdata
-        DEBIAN_FRONTEND=noninteractive
-        export DEBIAN_FRONTEND=noninteractive
-        tz=$(cat /etc/timezone)
+        tz="Europe/Bucharest"
+        echo "🕐 Setting timezone to Europe/Bucharest (default)"
+        echo $tz > /etc/timezone
+        rm -f /etc/localtime
+        ln -s /usr/share/zoneinfo/$tz /etc/localtime
+        timedatectl set-timezone $tz 2>/dev/null
+        echo "✅ Timezone configured"
     fi
 
     echo ""
@@ -226,8 +227,8 @@ if [[ "$silent" != "yes" ]]; then
         *) echo "❌ Installation cancelled"; exit 0;;
     esac
 else
-    # Silent mode - use defaults
-    tz=${tz:-"UTC"}
+    # Silent mode - use defaults including Europe/Bucharest timezone
+    tz=${tz:-"Europe/Bucharest"}
     adminL=${adminL:-"admin"}
     adminP=${adminP:-"admin123"}
     EMAIL=${EMAIL:-"admin@example.com"}
@@ -237,7 +238,7 @@ else
     APACHEACCESPORT=${APACHEACCESPORT:-3672}
     
     echo "🤖 Silent installation mode"
-    echo "📋 Using default configuration"
+    echo "📋 Using default configuration with Europe/Bucharest timezone"
 fi
 
 # Set timezone
