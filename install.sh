@@ -311,14 +311,20 @@ tput setaf 4; tput bold; echo "[+] Installing XtreamCodes Enhanced..."; tput sgr
 # Create xtreamcodes user
 adduser --system --shell /bin/false --group --disabled-login xtreamcodes 2>/dev/null
 
-# Download and extract XtreamCodes (using the working archive path)
+# Download and extract XtreamCodes (using OUR corrected archive)
 OSNAME=$(echo $OS | sed "s| |.|g")
-wget -q -O /tmp/xtreamcodes.tar.gz "https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/main_xui_${OSNAME}_${VER}.tar.gz"
+wget -q -O /tmp/xtreamcodes.tar.gz "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/xtreamcodes_enhanced_${OSNAME}_${VER}.tar.gz"
 
 if [ ! -f "/tmp/xtreamcodes.tar.gz" ]; then
-    echo "Failed to download XtreamCodes archive. Trying alternative..."
-    # Fallback to known working version
-    wget -q -O /tmp/xtreamcodes.tar.gz "https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/main_xui_Ubuntu_20.04.tar.gz"
+    echo "Failed to download from specific OS version. Trying universal enhanced version..."
+    # Fallback to universal enhanced version from OUR repo
+    wget -q -O /tmp/xtreamcodes.tar.gz "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/xtreamcodes_enhanced_universal.tar.gz"
+fi
+
+if [ ! -f "/tmp/xtreamcodes.tar.gz" ]; then
+    echo "ERROR: Could not download XtreamCodes enhanced archive from our repository!"
+    echo "Please check if the release exists at: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases"
+    exit 1
 fi
 
 # Extract XtreamCodes
@@ -731,33 +737,36 @@ tput setaf 2; tput bold; echo "✓ Permissions and nginx configuration completed
 # Install enhanced updates and patches
 tput setaf 4; tput bold; echo "[+] Installing enhanced patches and updates..."; tput sgr0;
 
-# Download and apply enhanced updates
-wget -q -O /tmp/update.zip "https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/update.zip"
+# Download and apply enhanced updates from OUR repository
+wget -q -O /tmp/update.zip "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/enhanced_updates.zip"
 if [ -f "/tmp/update.zip" ]; then
     unzip -o /tmp/update.zip -d /tmp/update/ 2>/dev/null
     chattr -i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
     
     # Preserve PHP and GeoLite2 database
-    rm -rf /tmp/update/XtreamUI-master/php 2>/dev/null
-    rm -rf /tmp/update/XtreamUI-master/GeoLite2.mmdb 2>/dev/null
+    rm -rf /tmp/update/XtreamUI-enhanced/php 2>/dev/null
+    rm -rf /tmp/update/XtreamUI-enhanced/GeoLite2.mmdb 2>/dev/null
     
-    # Apply updates
-    cp -rf /tmp/update/XtreamUI-master/* /home/xtreamcodes/iptv_xtream_codes/ 2>/dev/null
+    # Apply OUR enhanced updates
+    cp -rf /tmp/update/XtreamUI-enhanced/* /home/xtreamcodes/iptv_xtream_codes/ 2>/dev/null
     rm -rf /tmp/update
     rm -f /tmp/update.zip
+    echo "✓ Enhanced updates from our repository applied"
+else
+    echo "⚠ Enhanced updates not found, using base installation"
 fi
 
 # Update panel version
 xcversion="02"
 mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE admin_settings SET value = '$xcversion' WHERE admin_settings.type = 'panel_version';" 2>/dev/null
 
-# Update GeoLite2 database
+# Update GeoLite2 database from OUR repository
 chattr -i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
-wget -q -O /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb "https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/GeoLite2.mmdb"
+wget -q -O /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/GeoLite2.mmdb"
 chattr +i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
 
 # Update GeoLite2 version in database
-geoliteversion=$(wget -qO- "https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/Geolite2_status.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "latest")
+geoliteversion=$(wget -qO- "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/geolite2_version.txt" 2>/dev/null || echo "enhanced-v1.0")
 mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE admin_settings SET value = '$geoliteversion' WHERE admin_settings.type = 'geolite2_version';" 2>/dev/null
 
 # Set proper ownership and permissions
@@ -793,13 +802,13 @@ sudo -u xtreamcodes /home/xtreamcodes/iptv_xtream_codes/php/bin/php /home/xtream
 sudo -u xtreamcodes /home/xtreamcodes/iptv_xtream_codes/php/bin/php /home/xtreamcodes/iptv_xtream_codes/tools/signal_receiver.php >/dev/null 2>/dev/null &
 sudo -u xtreamcodes /home/xtreamcodes/iptv_xtream_codes/php/bin/php /home/xtreamcodes/iptv_xtream_codes/tools/pipe_reader.php >/dev/null 2>/dev/null &
 
-# Update GeoLite2 database
+# Update GeoLite2 database from OUR repository
 chattr -i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
-wget -qO /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/GeoLite2.mmdb 2>/dev/null
+wget -qO /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/GeoLite2.mmdb" 2>/dev/null
 chattr +i /home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb 2>/dev/null
 
 # Update GeoLite2 version in database
-geoliteversion=$(wget -qO- https://github.com/dOC4eVER/ubuntu20.04/releases/download/start/Geolite2_status.json 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "latest")
+geoliteversion=$(wget -qO- "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/geolite2_version.txt" 2>/dev/null || echo "enhanced-v1.0")
 PASSMYSQL=$(python2 /home/xtreamcodes/iptv_xtream_codes/pytools/config.py DECRYPT 2>/dev/null | grep Password | sed "s|Password:            ||g")
 mysql -u user_iptvpro -p$PASSMYSQL -P 7999 xtream_iptvpro -e "UPDATE admin_settings SET value = '$geoliteversion' WHERE admin_settings.type = 'geolite2_version';" 2>/dev/null
 
@@ -865,9 +874,9 @@ fi
 killall php-fpm 2>/dev/null
 rm -f /home/xtreamcodes/iptv_xtream_codes/php/VaiIb8.pid /home/xtreamcodes/iptv_xtream_codes/php/JdlJXm.pid /home/xtreamcodes/iptv_xtream_codes/php/CWcfSP.pid
 
-# Download enhanced balancer scripts
-wget -q https://github.com/dOC4eVER/ubuntu20.04/raw/master/balancer.php -O /home/xtreamcodes/iptv_xtream_codes/crons/balancer.php 2>/dev/null
-wget -q https://github.com/dOC4eVER/ubuntu20.04/raw/master/balancer.sh -O /home/xtreamcodes/iptv_xtream_codes/pytools/balancer.sh 2>/dev/null
+# Download enhanced balancer scripts from OUR repository
+wget -q "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/raw/master/scripts/balancer.php" -O /home/xtreamcodes/iptv_xtream_codes/crons/balancer.php 2>/dev/null
+wget -q "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/raw/master/scripts/balancer.sh" -O /home/xtreamcodes/iptv_xtream_codes/pytools/balancer.sh 2>/dev/null
 chmod +x /home/xtreamcodes/iptv_xtream_codes/pytools/balancer.sh 2>/dev/null
 
 tput setaf 2; tput bold; echo "✓ Enhanced patches and updates applied"; tput sgr0;
