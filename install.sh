@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# XtreamCodes Enhanced Final Installer - Stefan Edition 
+# XtreamCodes Enhanced Final Installer - Stefan Edition
 # =============================================
 # Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
 # Version: 1.0 - Bullet-proof installer
@@ -74,7 +74,7 @@ clear
 echo ""
 echo "┌─────────────────────────────────────────────────────────────────────┐"
 echo "│             XtreamCodes Enhanced Installer - Stefan Edition        │"
-echo "│                           Version 1.0  @2025                       │"
+echo "│                      Version 1.0  - @2025                          │"
 echo "└─────────────────────────────────────────────────────────────────────┘"
 echo ""
 echo "🚀 Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
