@@ -2,8 +2,8 @@
 # Enhanced Xtream UI Automated Installation Script
 # =============================================
 # Enhanced Version with all fixes included
-# Fixed by: dOC4eVER + Enhanced with dependency fixes
-#
+# Fixed by: Stefan2512 + Enhanced with dependency fixes
+# I forked the dOC4eVER repo and added install fixes and enhancements
 # This version includes all necessary fixes for:
 # - libzip.so.4 dependency issues
 # - PHP-FPM socket creation
