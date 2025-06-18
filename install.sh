@@ -169,6 +169,12 @@ echo "🌐 Server IP: $ipaddr"
 echo ""
 
 # Get user input
+# Auto-detect if running through pipe and enable silent mode
+if [[ ! -t 0 ]] && [[ "$silent" != "yes" ]]; then
+    echo "🤖 Pipe detected - enabling silent mode with defaults"
+    silent="yes"
+fi
+
 if [[ "$silent" != "yes" ]]; then
     # Set default timezone to Europe/Bucharest
     if [[ "$tz" == "" ]]; then
@@ -245,7 +251,15 @@ else
     APACHEACCESPORT=${APACHEACCESPORT:-3672}
     
     echo "🤖 Silent installation mode"
-    echo "📋 Using default configuration with Europe/Bucharest timezone"
+    echo "📋 Configuration:"
+    echo "   👤 Admin: $adminL"
+    echo "   📧 Email: $EMAIL"
+    echo "   🌐 Panel: http://$ipaddr:$ACCESPORT"
+    echo "   📡 Client: $CLIENTACCESPORT"
+    echo "   🕐 Timezone: $tz"
+    echo ""
+    echo "🚀 Starting automatic installation in 3 seconds..."
+    sleep 3
 fi
 
 # Set timezone regardless of mode
