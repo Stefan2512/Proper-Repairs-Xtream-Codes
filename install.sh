@@ -98,54 +98,16 @@ print_step() {
     log "STEP: $*"
 }
 
-# Error handling with more detailed debugging
+# Error handling
 handle_error() {
     local line_no=$1
     local error_code=$2
-    local command="${3:-unknown}"
-    
     print_error "Installation failed at line $line_no with exit code $error_code"
-    print_error "Failed command: $command"
     print_error "Check the log file: $LOG_FILE"
-    
-    # Try to provide more context about the error
-    case $line_no in
-        *) 
-            print_info "This error occurred during the installation process"
-            print_info "You can try running the installer again or check the logs for more details"
-            ;;
-    esac
-    
-    # Save error information
-    echo "ERROR: Line $line_no, Exit Code $error_code, Command: $command" >> "$LOG_FILE"
-    echo "ERROR TIME: $(date)" >> "$LOG_FILE"
-    
-    # Don't exit immediately, try to provide recovery options
-    print_info "Attempting to provide recovery information..."
-    
-    # Check system state
-    if command_exists systemctl; then
-        echo "=== Service Status ===" >> "$LOG_FILE"
-        systemctl status mariadb >> "$LOG_FILE" 2>&1 || systemctl status mysql >> "$LOG_FILE" 2>&1
-        systemctl status nginx >> "$LOG_FILE" 2>&1
-        systemctl status php7.4-fpm >> "$LOG_FILE" 2>&1
-    fi
-    
     exit "$error_code"
 }
 
-# More permissive error handling for critical sections
-set_permissive_mode() {
-    set +e  # Don't exit on error
-    print_info "Switching to permissive error handling mode"
-}
-
-set_strict_mode() {
-    set -e  # Exit on error
-    print_info "Switching to strict error handling mode"
-}
-
-trap 'handle_error ${LINENO} $? "${BASH_COMMAND}"' ERR
+trap 'handle_error ${LINENO} $?' ERR
 
 # Progress indicator
 show_progress() {
@@ -455,148 +417,209 @@ create_xtream_user() {
 
 # =================== DATABASE SETUP ===================
 
+# =================== TROUBLESHOOTING FUNCTIONS ===================
+
+troubleshoot_mariadb() {
+    print_step "Troubleshooting MariaDB installation"
+    
+    print_info "Checking MariaDB installation status..."
+    
+    # Check if MariaDB packages are installed
+    if dpkg -l | grep -q mariadb-server; then
+        print_info "MariaDB packages are installed"
+    else
+        print_warning "MariaDB packages not found, attempting reinstallation..."
+        apt-get -yqq install --reinstall mariadb-server mariadb-client
+    fi
+    
+    # Check for MySQL alternatives
+    if command_exists mysql; then
+        print_info "MySQL client found: $(mysql --version)"
+    else
+        print_warning "MySQL client not found"
+    fi
+    
+    # Check running processes
+    print_info "Checking for running MySQL/MariaDB processes..."
+    if pgrep -f mysqld; then
+        print_info "MySQL/MariaDB process found"
+    else
+        print_warning "No MySQL/MariaDB process running"
+        
+        # Try to start manually
+        print_info "Attempting to start MariaDB manually..."
+        if [ -f "/usr/sbin/mysqld" ]; then
+            /usr/sbin/mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql 2>/dev/null || true
+            /usr/sbin/mysqld --user=mysql --datadir=/var/lib/mysql --socket=/var/run/mysqld/mysqld.sock &
+            sleep 5
+        fi
+    fi
+    
+    # Check socket files
+    print_info "Checking for MySQL socket files..."
+    find /var/run /tmp -name "*.sock" -type s 2>/dev/null | grep -i mysql || print_warning "No MySQL socket files found"
+    
+    # Try alternative installation
+    if ! mysql -u root -e "SELECT 1;" >/dev/null 2>&1; then
+        print_warning "Standard MariaDB installation failed, trying alternative method..."
+        
+        # Remove existing installation
+        systemctl stop mariadb mysql mysqld 2>/dev/null || true
+        apt-get -yqq purge mariadb-server mariadb-client mysql-server mysql-client 2>/dev/null || true
+        apt-get -yqq autoremove
+        rm -rf /var/lib/mysql /etc/mysql
+        
+        # Install MySQL instead
+        print_info "Installing MySQL as alternative to MariaDB..."
+        debconf-set-selections <<< "mysql-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD"
+        debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD"
+        apt-get -yqq install mysql-server mysql-client
+        
+        systemctl start mysql
+        systemctl enable mysql
+        
+        sleep 5
+        
+        if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
+            print_success "MySQL installed successfully as MariaDB alternative"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
 install_mariadb() {
     print_step "Installing and configuring MariaDB"
     
-    # Pre-configure MariaDB to avoid interactive prompts
+    # Pre-configure MariaDB installation
     print_info "Pre-configuring MariaDB installation..."
-    export DEBIAN_FRONTEND=noninteractive
-    
-    # Set MariaDB root password before installation
     debconf-set-selections <<< "mariadb-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD"
     debconf-set-selections <<< "mariadb-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD"
     
-    # Install MariaDB with error handling
+    # Install MariaDB packages
     print_info "Installing MariaDB packages..."
-    if ! apt-get -yqq install mariadb-server mariadb-client; then
-        print_warning "MariaDB installation encountered issues, trying alternative method..."
-        apt-get -y install mariadb-server mariadb-client
+    if ! apt-get -yqq install mariadb-server mariadb-client mariadb-common mysql-common; then
+        print_warning "MariaDB installation failed, trying alternative installation method..."
+        
+        # Try alternative installation
+        apt-get update -qq
+        apt-get -yqq install software-properties-common
+        
+        # Try MariaDB official repository
+        if wget -qO- https://mariadb.org/mariadb_release_signing_key.asc | apt-key add - >/dev/null 2>&1; then
+            case "$DETECTED_VER" in
+                "18.04") MARIADB_REPO="bionic" ;;
+                "20.04") MARIADB_REPO="focal" ;;
+                "22.04") MARIADB_REPO="jammy" ;;
+                *) MARIADB_REPO="focal" ;;
+            esac
+            
+            echo "deb [arch=amd64,arm64,ppc64el] https://mariadb.mirror.liquidtelecom.com/repo/10.6/ubuntu $MARIADB_REPO main" > /etc/apt/sources.list.d/mariadb.list
+            apt-get update -qq
+            apt-get -yqq install mariadb-server mariadb-client
+        fi
     fi
     
-    # Wait for installation to complete
-    sleep 3
+    # If still failed, try troubleshooting
+    if ! dpkg -l | grep -q mariadb-server && ! dpkg -l | grep -q mysql-server; then
+        if ! troubleshoot_mariadb; then
+            print_error "Failed to install MariaDB/MySQL after multiple attempts"
+            print_error "Please install MariaDB manually and run this script again"
+            exit 1
+        fi
+    fi
     
-    # Check if MariaDB service exists
-    if ! systemctl list-unit-files | grep -q mariadb; then
+    # Check which service name is available
+    local service_name=""
+    if systemctl list-unit-files | grep -q "mariadb.service"; then
+        service_name="mariadb"
+        print_info "Using mariadb service"
+    elif systemctl list-unit-files | grep -q "mysql.service"; then
+        service_name="mysql"
+        print_info "Using mysql service"
+    elif systemctl list-unit-files | grep -q "mysqld.service"; then
+        service_name="mysqld"
+        print_info "Using mysqld service"
+    else
         print_warning "MariaDB service not found, trying mysql service..."
-        if systemctl list-unit-files | grep -q mysql; then
-            print_info "Using mysql service instead of mariadb"
-            # Use mysql service names instead
-            systemctl start mysql >/dev/null 2>&1
-            systemctl enable mysql >/dev/null 2>&1
+        service_name="mysql"
+    fi
+    
+    # Ensure the service exists and is properly configured
+    if ! systemctl is-enabled $service_name >/dev/null 2>&1 && ! systemctl is-active $service_name >/dev/null 2>&1; then
+        print_warning "Service $service_name not found or not configured properly"
+        
+        # Try to manually start MariaDB
+        if command_exists mysqld_safe; then
+            print_info "Starting MariaDB manually..."
+            mysqld_safe --user=mysql --datadir=/var/lib/mysql --socket=/var/run/mysqld/mysqld.sock --pid-file=/var/run/mysqld/mysqld.pid &
+            sleep 5
+        elif command_exists mysqld; then
+            print_info "Starting MySQL daemon manually..."
+            mysqld --user=mysql --datadir=/var/lib/mysql &
+            sleep 5
         else
-            print_error "Neither mariadb nor mysql service found"
+            print_error "Neither mariadb nor mysql service found and no manual start method available"
             exit 1
         fi
     else
-        # Start and enable MariaDB
-        print_info "Starting MariaDB service..."
-        systemctl start mariadb >/dev/null 2>&1
-        systemctl enable mariadb >/dev/null 2>&1
-    fi
-    
-    # Wait for service to start
-    sleep 5
-    
-    # Check if MariaDB is running
-    if ! pgrep -f mysqld >/dev/null; then
-        print_warning "MariaDB not running, attempting to start..."
-        systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null
+        # Start and enable the service
+        print_info "Starting and enabling $service_name service..."
+        systemctl start $service_name >/dev/null 2>&1
+        systemctl enable $service_name >/dev/null 2>&1
         sleep 3
-        
-        if ! pgrep -f mysqld >/dev/null; then
-            print_error "Failed to start MariaDB service"
-            print_info "Checking MariaDB status..."
-            systemctl status mariadb 2>/dev/null || systemctl status mysql 2>/dev/null
-            exit 1
-        fi
     fi
     
-    # Configure MariaDB root password with multiple methods
+    # Wait for MariaDB to be ready
+    print_info "Waiting for MariaDB to be ready..."
+    local retry_count=0
+    while ! mysqladmin ping -u root --silent 2>/dev/null && [ $retry_count -lt 30 ]; do
+        sleep 2
+        ((retry_count++))
+        printf "."
+    done
+    echo ""
+    
+    if [ $retry_count -eq 30 ]; then
+        print_error "MariaDB failed to start after 60 seconds"
+        print_error "Please check MariaDB logs: journalctl -u $service_name"
+        print_error "Or try: systemctl status $service_name"
+        exit 1
+    fi
+    
+    # Configure MariaDB root password
     print_info "Configuring MariaDB root password..."
-    local password_set=false
     
-    # Method 1: Try ALTER USER (MariaDB 10.4+)
-    if mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; FLUSH PRIVILEGES;" 2>/dev/null; then
-        password_set=true
-        print_info "Root password set using ALTER USER method"
-    fi
-    
-    # Method 2: Try UPDATE mysql.user (older versions)
-    if [ "$password_set" = false ]; then
-        if mysql -u root -e "UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root'; FLUSH PRIVILEGES;" 2>/dev/null; then
-            password_set=true
-            print_info "Root password set using UPDATE method"
-        fi
-    fi
-    
-    # Method 3: Try SET PASSWORD
-    if [ "$password_set" = false ]; then
-        if mysql -u root -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$MYSQL_ROOT_PASSWORD'); FLUSH PRIVILEGES;" 2>/dev/null; then
-            password_set=true
-            print_info "Root password set using SET PASSWORD method"
-        fi
-    fi
-    
-    # Method 4: Try mysqladmin
-    if [ "$password_set" = false ]; then
-        if mysqladmin -u root password "$MYSQL_ROOT_PASSWORD" 2>/dev/null; then
-            password_set=true
-            print_info "Root password set using mysqladmin method"
-        fi
-    fi
-    
-    # Method 5: Use mysql_secure_installation alternative
-    if [ "$password_set" = false ]; then
-        print_info "Trying mysql_secure_installation method..."
-        mysql -u root <<EOF 2>/dev/null && password_set=true
-UPDATE mysql.user SET authentication_string = PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User = 'root';
-DELETE FROM mysql.user WHERE User='';
-DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-DROP DATABASE IF EXISTS test;
-DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-FLUSH PRIVILEGES;
-EOF
-    fi
-    
-    if [ "$password_set" = false ]; then
-        print_warning "Could not set root password, may already be set or using auth_socket"
-        print_info "Attempting to verify current setup..."
-        
-        # Test if password is already set correctly
-        if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
-            print_info "Root password appears to be already set correctly"
-            password_set=true
-        fi
-    fi
-    
-    # Verify MariaDB is accessible
-    print_info "Verifying MariaDB access..."
-    if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT VERSION();" >/dev/null 2>&1; then
-        print_success "MariaDB is accessible with configured password"
+    # Try multiple methods to set root password
+    if mysql -u root -e "SELECT 1;" >/dev/null 2>&1; then
+        # Root login without password works
+        mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; FLUSH PRIVILEGES;" 2>/dev/null || \
+        mysql -u root -e "UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root'; FLUSH PRIVILEGES;" 2>/dev/null || \
+        mysql -u root -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$MYSQL_ROOT_PASSWORD'); FLUSH PRIVILEGES;" 2>/dev/null
+    elif mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
+        # Password already set
+        print_info "MariaDB root password already configured"
     else
-        print_warning "MariaDB may not be accessible with configured password"
-        print_info "This might be resolved by the configuration step"
+        # Try using mysqladmin
+        mysqladmin -u root password "$MYSQL_ROOT_PASSWORD" 2>/dev/null || true
     fi
     
-    print_success "MariaDB installation completed"
+    # Verify MariaDB is working
+    if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
+        print_success "MariaDB installed and configured successfully"
+    else
+        print_error "MariaDB configuration verification failed"
+        print_error "Please check MariaDB status manually: systemctl status $service_name"
+        print_error "Check logs: journalctl -u $service_name"
+        exit 1
+    fi
 }
 
 configure_mariadb() {
     print_step "Optimizing MariaDB configuration"
     
-    # Stop MariaDB before configuration changes
-    print_info "Stopping MariaDB for configuration..."
-    systemctl stop mariadb 2>/dev/null || systemctl stop mysql 2>/dev/null
-    sleep 3
-    
-    # Backup existing configuration
-    if [ -f "/etc/mysql/mariadb.cnf" ]; then
-        cp /etc/mysql/mariadb.cnf /etc/mysql/mariadb.cnf.backup.$(date +%Y%m%d_%H%M%S)
-    fi
-    
     # Create optimized MariaDB configuration
-    print_info "Creating optimized MariaDB configuration..."
     cat > /etc/mysql/mariadb.cnf << 'EOF'
 # XtreamCodes Enhanced MariaDB Configuration v2.0
 
@@ -672,53 +695,11 @@ max_allowed_packet = 32M
 key_buffer_size = 32M
 EOF
 
-    # Start MariaDB with new configuration
-    print_info "Starting MariaDB with new configuration..."
-    systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null
+    # Restart MariaDB with new configuration
+    systemctl restart mariadb
+    sleep 3
     
-    # Wait for MariaDB to start
-    local wait_count=0
-    while [ $wait_count -lt 30 ]; do
-        if pgrep -f mysqld >/dev/null; then
-            break
-        fi
-        sleep 1
-        ((wait_count++))
-    done
-    
-    if [ $wait_count -ge 30 ]; then
-        print_warning "MariaDB took longer than expected to start"
-        print_info "Checking MariaDB status..."
-        systemctl status mariadb 2>/dev/null || systemctl status mysql 2>/dev/null
-        
-        # Try to restart with original config if new config fails
-        print_info "Attempting recovery with backup configuration..."
-        if [ -f "/etc/mysql/mariadb.cnf.backup.*" ]; then
-            cp /etc/mysql/mariadb.cnf.backup.* /etc/mysql/mariadb.cnf 2>/dev/null
-            systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null
-            sleep 3
-        fi
-        
-        if ! pgrep -f mysqld >/dev/null; then
-            print_error "Failed to start MariaDB with new configuration"
-            exit 1
-        fi
-    fi
-    
-    # Verify MariaDB is accessible
-    print_info "Verifying MariaDB configuration..."
-    local verification_count=0
-    while [ $verification_count -lt 10 ]; do
-        if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
-            print_success "MariaDB configuration verified"
-            return 0
-        fi
-        sleep 2
-        ((verification_count++))
-    done
-    
-    print_warning "MariaDB configuration verification failed, but continuing..."
-    print_success "MariaDB configuration completed"
+    print_success "MariaDB configuration optimized"
 }
 
 # =================== PHP INSTALLATION ===================
@@ -1135,93 +1116,17 @@ extract_xtreamcodes() {
 
 # =================== DATABASE CONFIGURATION ===================
 
-# =================== DATABASE CONFIGURATION ===================
-
-test_database_connection() {
-    print_step "Testing database connection"
-    
-    local max_attempts=5
-    local attempt=1
-    
-    while [ $attempt -le $max_attempts ]; do
-        print_info "Testing connection attempt $attempt/$max_attempts..."
-        
-        if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
-            print_success "Database connection successful"
-            return 0
-        fi
-        
-        # Try without password for first attempt (new installation)
-        if [ $attempt -eq 1 ]; then
-            if mysql -u root -e "SELECT 1;" >/dev/null 2>&1; then
-                print_info "Connected to database without password, configuring..."
-                # Try to set password
-                mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; FLUSH PRIVILEGES;" 2>/dev/null || \
-                mysql -u root -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$MYSQL_ROOT_PASSWORD'); FLUSH PRIVILEGES;" 2>/dev/null
-                
-                # Test again with password
-                if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1; then
-                    print_success "Database password configured successfully"
-                    return 0
-                fi
-            fi
-        fi
-        
-        print_warning "Connection attempt $attempt failed, waiting 3 seconds..."
-        sleep 3
-        ((attempt++))
-    done
-    
-    print_error "Failed to connect to database after $max_attempts attempts"
-    print_info "Please check MariaDB status manually:"
-    print_info "systemctl status mariadb"
-    print_info "mysql -u root -p"
-    return 1
-}
-
 configure_database() {
     print_step "Configuring XtreamCodes database"
     
-    # First test database connection
-    set_permissive_mode
-    if ! test_database_connection; then
-        print_warning "Database connection test failed, but continuing..."
-        # Try to fix common issues
-        print_info "Attempting to fix MariaDB issues..."
-        systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null
-        sleep 5
-        
-        # Try once more
-        if ! test_database_connection; then
-            print_error "Cannot establish database connection. Please check MariaDB installation."
-            exit 1
-        fi
-    fi
-    set_strict_mode
-    
     # Create database and import schema
-    print_info "Creating XtreamCodes database..."
-    if ! mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS xtream_iptvpro; CREATE DATABASE xtream_iptvpro;" 2>/dev/null; then
-        print_error "Failed to create database"
-        exit 1
-    fi
-    
-    print_info "Importing database schema..."
-    if ! mysql -u root -p"$MYSQL_ROOT_PASSWORD" xtream_iptvpro < /tmp/database.sql 2>/dev/null; then
-        print_error "Failed to import database schema"
-        print_info "Please check if /tmp/database.sql exists and is valid"
-        exit 1
-    fi
+    mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS xtream_iptvpro; CREATE DATABASE xtream_iptvpro;" 2>/dev/null
+    mysql -u root -p"$MYSQL_ROOT_PASSWORD" xtream_iptvpro < /tmp/database.sql 2>/dev/null
     
     # Create database user
-    print_info "Creating database user..."
-    if ! mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON *.* TO 'user_iptvpro'@'%' IDENTIFIED BY '$XTREAM_DB_PASSWORD' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null; then
-        print_warning "Failed to create database user with %, trying localhost..."
-        mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON *.* TO 'user_iptvpro'@'localhost' IDENTIFIED BY '$XTREAM_DB_PASSWORD' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null
-    fi
+    mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON *.* TO 'user_iptvpro'@'%' IDENTIFIED BY '$XTREAM_DB_PASSWORD' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null
     
     # Configure streaming server
-    print_info "Configuring streaming server settings..."
     mysql -u root -p"$MYSQL_ROOT_PASSWORD" xtream_iptvpro -e "
         UPDATE streaming_servers SET 
             server_ip='$SERVER_IP',
@@ -1233,7 +1138,6 @@ configure_database() {
     " 2>/dev/null
     
     # Update system settings
-    print_info "Updating system settings..."
     mysql -u root -p"$MYSQL_ROOT_PASSWORD" xtream_iptvpro -e "
         UPDATE settings SET 
             live_streaming_pass='$XTREAM_SALT',
@@ -1385,6 +1289,18 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 cd /home/xtreamcodes/iptv_xtream_codes
 
+# Determine MariaDB service name
+MARIADB_SERVICE=""
+if systemctl list-unit-files | grep -q "mariadb.service"; then
+    MARIADB_SERVICE="mariadb"
+elif systemctl list-unit-files | grep -q "mysql.service"; then
+    MARIADB_SERVICE="mysql"
+elif systemctl list-unit-files | grep -q "mysqld.service"; then
+    MARIADB_SERVICE="mysqld"
+else
+    MARIADB_SERVICE="mariadb"
+fi
+
 # Function to check service status
 check_service() {
     if pgrep -f "$1" > /dev/null; then
@@ -1397,8 +1313,8 @@ check_service() {
 }
 
 # Start core services
-echo -e "${YELLOW}🗄️  Starting MariaDB...${NC}"
-systemctl start mariadb
+echo -e "${YELLOW}🗄️  Starting MariaDB ($MARIADB_SERVICE)...${NC}"
+systemctl start $MARIADB_SERVICE
 sleep 2
 
 echo -e "${YELLOW}🐘 Starting PHP-FPM...${NC}"
@@ -1425,7 +1341,7 @@ sleep 5
 echo ""
 echo -e "${GREEN}📊 Service Status:${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-check_service "mariadb" "MariaDB"
+check_service "mysqld" "MariaDB"
 check_service "php7.4-fpm" "PHP-FPM 7.4"
 check_service "nginx.*master" "Nginx"
 
@@ -1548,6 +1464,7 @@ echo ""
 echo -e "${BLUE}🔧 Management Commands:${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Restart services: /home/xtreamcodes/iptv_xtream_codes/restart_services.sh"
+echo "Fix MariaDB: /home/xtreamcodes/iptv_xtream_codes/fix_mariadb.sh"
 echo "View nginx logs: tail -f /var/log/nginx/error.log"
 echo "Test nginx config: nginx -t"
 echo "Reload nginx: systemctl reload nginx"
@@ -1568,6 +1485,18 @@ NC='\033[0m'
 echo -e "${YELLOW}🔄 Restarting XtreamCodes Enhanced v2.0 Services${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+# Determine MariaDB service name
+MARIADB_SERVICE=""
+if systemctl list-unit-files | grep -q "mariadb.service"; then
+    MARIADB_SERVICE="mariadb"
+elif systemctl list-unit-files | grep -q "mysql.service"; then
+    MARIADB_SERVICE="mysql"
+elif systemctl list-unit-files | grep -q "mysqld.service"; then
+    MARIADB_SERVICE="mysqld"
+else
+    MARIADB_SERVICE="mariadb"
+fi
+
 # Stop services
 echo -e "${YELLOW}🛑 Stopping services...${NC}"
 systemctl stop nginx 2>/dev/null
@@ -1580,11 +1509,116 @@ sleep 3
 
 # Start services
 echo -e "${YELLOW}🚀 Starting services...${NC}"
-/home/xtreamcodes/iptv_xtream_codes/start_services.sh
+systemctl start $MARIADB_SERVICE
+sleep 2
+systemctl start php7.4-fpm
+sleep 2
+systemctl start nginx
 
 echo ""
 echo -e "${GREEN}✅ Service restart completed!${NC}"
 echo "Check status: /home/xtreamcodes/iptv_xtream_codes/check_status.sh"
+EOF
+
+    # MariaDB fix script
+    cat > /home/xtreamcodes/iptv_xtream_codes/fix_mariadb.sh << 'EOF'
+#!/bin/bash
+# XtreamCodes Enhanced v2.0 - MariaDB Fix Script
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}🔧 XtreamCodes MariaDB Fix Script${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}❌ Please run as root: sudo ./fix_mariadb.sh${NC}"
+    exit 1
+fi
+
+# Function to check service status
+check_service() {
+    if systemctl is-active --quiet "$1"; then
+        echo -e "${GREEN}✅ $1 is running${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ $1 is not running${NC}"
+        return 1
+    fi
+}
+
+# Determine MariaDB service name
+MARIADB_SERVICE=""
+if systemctl list-unit-files | grep -q "mariadb.service"; then
+    MARIADB_SERVICE="mariadb"
+elif systemctl list-unit-files | grep -q "mysql.service"; then
+    MARIADB_SERVICE="mysql"
+elif systemctl list-unit-files | grep -q "mysqld.service"; then
+    MARIADB_SERVICE="mysqld"
+else
+    echo -e "${RED}❌ No MariaDB/MySQL service found${NC}"
+    exit 1
+fi
+
+echo -e "${YELLOW}📊 Current Status:${NC}"
+check_service $MARIADB_SERVICE
+
+echo ""
+echo -e "${YELLOW}🔍 Diagnostic Information:${NC}"
+echo "Service name: $MARIADB_SERVICE"
+echo "Process status: $(pgrep -f mysqld | wc -l) processes running"
+echo "Socket files: $(find /var/run /tmp -name "*.sock" 2>/dev/null | grep -i mysql | wc -l) found"
+
+echo ""
+echo -e "${YELLOW}🔧 Attempting to fix MariaDB...${NC}"
+
+# Stop service
+echo "Stopping $MARIADB_SERVICE..."
+systemctl stop $MARIADB_SERVICE 2>/dev/null
+
+# Kill any remaining processes
+pkill -f mysqld 2>/dev/null || true
+sleep 2
+
+# Check for lock files and remove them
+if [ -f "/var/lib/mysql/mysql.sock.lock" ]; then
+    echo "Removing MySQL socket lock..."
+    rm -f /var/lib/mysql/mysql.sock.lock
+fi
+
+# Fix permissions
+echo "Fixing permissions..."
+chown -R mysql:mysql /var/lib/mysql
+chmod 755 /var/lib/mysql
+
+# Start service
+echo "Starting $MARIADB_SERVICE..."
+if systemctl start $MARIADB_SERVICE; then
+    echo -e "${GREEN}✅ $MARIADB_SERVICE started successfully${NC}"
+    
+    # Wait for service to be ready
+    echo "Waiting for MariaDB to be ready..."
+    sleep 5
+    
+    if mysqladmin ping -u root --silent 2>/dev/null; then
+        echo -e "${GREEN}✅ MariaDB is responding to connections${NC}"
+    else
+        echo -e "${YELLOW}⚠️  MariaDB started but not accepting connections yet${NC}"
+    fi
+else
+    echo -e "${RED}❌ Failed to start $MARIADB_SERVICE${NC}"
+    echo "Check logs: journalctl -u $MARIADB_SERVICE"
+fi
+
+echo ""
+echo -e "${BLUE}📋 Final Status:${NC}"
+check_service $MARIADB_SERVICE
+echo ""
 EOF
 
     # Make scripts executable
@@ -1599,12 +1633,24 @@ EOF
 configure_services() {
     print_step "Configuring system services"
     
+    # Determine MariaDB service name
+    local mariadb_service=""
+    if systemctl list-unit-files | grep -q "mariadb.service"; then
+        mariadb_service="mariadb"
+    elif systemctl list-unit-files | grep -q "mysql.service"; then
+        mariadb_service="mysql"
+    elif systemctl list-unit-files | grep -q "mysqld.service"; then
+        mariadb_service="mysqld"
+    else
+        mariadb_service="mariadb"
+    fi
+    
     # Create systemd service
     cat > /etc/systemd/system/xtreamcodes.service << EOF
 [Unit]
 Description=XtreamCodes Enhanced v2.0 Service
-After=network.target mariadb.service php7.4-fpm.service
-Requires=mariadb.service php7.4-fpm.service
+After=network.target ${mariadb_service}.service php7.4-fpm.service
+Requires=${mariadb_service}.service php7.4-fpm.service
 
 [Service]
 Type=forking
@@ -1641,15 +1687,31 @@ start_services() {
     ln -s "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
     timedatectl set-timezone "$TIMEZONE" 2>/dev/null || true
     
+    # Determine MariaDB service name
+    local mariadb_service=""
+    if systemctl list-unit-files | grep -q "mariadb.service"; then
+        mariadb_service="mariadb"
+    elif systemctl list-unit-files | grep -q "mysql.service"; then
+        mariadb_service="mysql"
+    elif systemctl list-unit-files | grep -q "mysqld.service"; then
+        mariadb_service="mysqld"
+    else
+        mariadb_service="mariadb"  # Default fallback
+    fi
+    
     # Start services in correct order
-    systemctl start mariadb
+    print_info "Starting $mariadb_service..."
+    systemctl start $mariadb_service
     sleep 2
     
+    print_info "Starting PHP-FPM..."
     systemctl start php7.4-fpm
     sleep 2
     
     # Test nginx configuration before starting
+    print_info "Testing Nginx configuration..."
     if nginx -t >/dev/null 2>&1; then
+        print_info "Starting Nginx..."
         systemctl start nginx
         print_success "Nginx started successfully"
     else
