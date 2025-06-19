@@ -44,6 +44,14 @@ while getopts ":fkh" option; do
             echo "  -k    Keep packages (nginx, php, mariadb) - doar curăță XtreamCodes"
             echo "  -h    Show this help"
             echo ""
+            echo "🔧 Examples:"
+            echo "Interactive mode:    curl -L .../uninstall.sh | bash"
+            echo "Cleanup only:        curl -L .../uninstall.sh | bash -s -- -f -k"
+            echo "Complete removal:    curl -L .../uninstall.sh | bash -s -- -f"
+            echo ""
+            echo "🤖 Pipe Mode: When running through pipe (curl | bash),"
+            echo "   the script automatically enables cleanup mode (keeps packages)"
+            echo ""
             echo "IMPORTANT: Acest script va crea backup complet înainte de dezinstalare!"
             echo "Backup location: /root/xtreamcodes_backup_YYYYMMDD_HHMMSS/"
             exit 0
@@ -112,6 +120,13 @@ fi
 
 echo ""
 
+# Auto-detect if running through pipe and enable force mode
+if [[ ! -t 0 ]] && [[ "$FORCE" != "true" ]]; then
+    echo -e "${YELLOW}🤖 Pipe detected - enabling force mode with cleanup (keep packages)${NC}"
+    FORCE=true
+    KEEP_PACKAGES=true
+fi
+
 # Get user confirmation
 if [ "$FORCE" = false ]; then
     echo -e "${YELLOW}🤔 Ce vrei să faci?${NC}"
@@ -153,10 +168,15 @@ if [ "$FORCE" = false ]; then
 else
     echo -e "${YELLOW}🤖 Force mode enabled - proceeding automatically${NC}"
     if [ "$KEEP_PACKAGES" = true ]; then
-        echo -e "${YELLOW}🧹 Cleanup mode: Keeping packages${NC}"
+        echo -e "${YELLOW}🧹 Cleanup mode: Păstrează packages (nginx, php, mariadb)${NC}"
+        echo -e "${BLUE}ℹ️  Va curăța doar XtreamCodes și va face backup complet${NC}"
     else
         echo -e "${RED}🗑️  Complete mode: Removing all packages${NC}"
+        echo -e "${RED}⚠️  Va șterge totul: nginx, php, mariadb + XtreamCodes${NC}"
     fi
+    echo ""
+    echo -e "${GREEN}🚀 Starting automatic uninstall in 3 seconds...${NC}"
+    sleep 3
 fi
 
 # Start logging
