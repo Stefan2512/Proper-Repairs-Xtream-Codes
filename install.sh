@@ -2,7 +2,7 @@
 # XtreamCodes Enhanced Final Installer - Stefan Edition cu Nginx Oficial
 # =============================================
 # Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
-# Version: 1.1 - Cu instalare Nginx oficială pentru Ubuntu 20.04+
+# Version: 1.1 - FIXED to use REAL archives, not demo files
 #
 # This installer is TESTED and includes ALL necessary fixes:
 # ✅ All dependency management
@@ -11,6 +11,7 @@
 # ✅ MySQL/MariaDB installation and configuration
 # ✅ Nginx oficial din repository Ubuntu (nu cel vechi din XtreamCodes)
 # ✅ Database.sql download din GitHub
+# ✅ REAL XtreamCodes archives from releases (NO DEMO FILES!)
 # ✅ Automatic service startup
 # ✅ Works on VM and dedicated servers
 #
@@ -76,18 +77,20 @@ clear
 echo ""
 echo "┌─────────────────────────────────────────────────────────────────────┐"
 echo "│             XtreamCodes Enhanced Installer - Stefan Edition        │"
-echo "│                     Version 1.1 @2025 - Nginx Fix                 │"
+echo "│                     Version 1.1 @2025 - REAL Archives             │"
 echo "└─────────────────────────────────────────────────────────────────────┘"
 echo ""
 echo "🚀 Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
 echo ""
 echo "✅ Features:"
+echo "   • Uses REAL XtreamCodes archives from releases"
 echo "   • All dependency fixes included"
 echo "   • libzip.so.4 compatibility ensured"
 echo "   • PHP-FPM socket fixes"
 echo "   • MySQL/MariaDB auto-configuration"
 echo "   • 🆕 Nginx oficial din Ubuntu repository (nu cel vechi!)"
 echo "   • 🆕 Database.sql download din GitHub repository"
+echo "   • 🚫 NO DEMO FILES CREATED - 100% ORIGINAL XTREAMCODES"
 echo "   • Works on VM and dedicated servers"
 echo ""
 
@@ -140,6 +143,25 @@ fi
 
 echo "✅ System checks passed"
 echo ""
+
+# Determine which archive to download based on Ubuntu version
+case "$VER" in
+    "18.04")
+        ARCHIVE_NAME="xtreamcodes_enhanced_Ubuntu_18.04.tar.gz"
+        ;;
+    "20.04")
+        ARCHIVE_NAME="xtreamcodes_enhanced_Ubuntu_20.04.tar.gz"
+        ;;
+    "22.04")
+        ARCHIVE_NAME="xtreamcodes_enhanced_Ubuntu_22.04.tar.gz"
+        ;;
+    *)
+        ARCHIVE_NAME="xtreamcodes_enhanced_universal.tar.gz"
+        echo "⚠️  Using universal archive for Ubuntu $VER"
+        ;;
+esac
+
+echo "📦 Will use archive: $ARCHIVE_NAME"
 
 # Prepare system
 echo "🔧 Preparing system..."
@@ -277,7 +299,7 @@ Padmin=$(perl -e 'print crypt($ARGV[1], "\$" . $ARGV[0] . "\$" . $ARGV[2]), "\n"
 
 clear
 echo ""
-echo "🚀 Starting XtreamCodes Enhanced Installation..."
+echo "🚀 Starting XtreamCodes Enhanced Installation with REAL Archives..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📋 System: $OS $VER ($ARCH)"
 echo "🌐 Server IP: $ipaddr"
@@ -285,13 +307,14 @@ echo "👤 Admin: $adminL"
 echo "🌐 Panel: http://$ipaddr:$ACCESPORT"
 echo "📧 Email: $EMAIL"
 echo "🕐 Timezone: $tz"
+echo "📦 Archive: $ARCHIVE_NAME"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
 # Install all required dependencies
 echo "📦 Installing system dependencies..."
 apt-get -yqq install \
-    curl wget unzip zip \
+    curl wget unzip zip tar \
     software-properties-common \
     python2 python3 python-is-python2 \
     net-tools \
@@ -390,9 +413,94 @@ echo "✅ Dependencies installed successfully"
 echo "👤 Creating xtreamcodes system user..."
 adduser --system --shell /bin/false --group --disabled-login xtreamcodes >/dev/null 2>&1
 
+# 🆕 DOWNLOAD REAL XTREAMCODES ARCHIVE
+echo "📥 Downloading REAL XtreamCodes archive: $ARCHIVE_NAME"
+mkdir -p /tmp
+cd /tmp
+
+# Try multiple download URLs for the archive
+DOWNLOAD_URLS=(
+    "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/latest/download/$ARCHIVE_NAME"
+    "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.1/$ARCHIVE_NAME"
+    "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/raw/master/$ARCHIVE_NAME"
+)
+
+ARCHIVE_DOWNLOADED=false
+for URL in "${DOWNLOAD_URLS[@]}"; do
+    echo "🔍 Trying: $URL"
+    if wget -q --timeout=60 --tries=3 -O "/tmp/$ARCHIVE_NAME" "$URL" 2>/dev/null; then
+        # Check if file was actually downloaded and has content
+        if [ -s "/tmp/$ARCHIVE_NAME" ]; then
+            # Verify it's a valid tar.gz file
+            if tar -tzf "/tmp/$ARCHIVE_NAME" >/dev/null 2>&1; then
+                echo "✅ Successfully downloaded and verified: $ARCHIVE_NAME"
+                ARCHIVE_DOWNLOADED=true
+                break
+            else
+                echo "❌ Downloaded file is not a valid tar.gz archive"
+                rm -f "/tmp/$ARCHIVE_NAME"
+            fi
+        else
+            echo "❌ Downloaded file is empty"
+            rm -f "/tmp/$ARCHIVE_NAME"
+        fi
+    else
+        echo "❌ Failed to download from: $URL"
+    fi
+done
+
+if [ "$ARCHIVE_DOWNLOADED" = false ]; then
+    echo "❌ Failed to download XtreamCodes archive: $ARCHIVE_NAME"
+    echo "   Please check:"
+    echo "   1. Internet connection"
+    echo "   2. Archive exists in releases: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases"
+    echo "   3. Archive name is correct: $ARCHIVE_NAME"
+    exit 1
+fi
+
+# 🆕 EXTRACT REAL XTREAMCODES FILES
+echo "📂 Extracting REAL XtreamCodes files..."
+mkdir -p /home/xtreamcodes
+cd /home/xtreamcodes
+
+# Extract the archive
+if tar -xzf "/tmp/$ARCHIVE_NAME" 2>/dev/null; then
+    echo "✅ Archive extracted successfully"
+else
+    echo "❌ Failed to extract archive"
+    exit 1
+fi
+
+# Verify the extraction created the correct directory structure
+if [ ! -d "/home/xtreamcodes/iptv_xtream_codes" ]; then
+    echo "🔍 Checking extracted contents..."
+    
+    # List what was extracted
+    EXTRACTED_DIRS=$(find /home/xtreamcodes -maxdepth 1 -type d -name "*xtream*" 2>/dev/null)
+    
+    if [ ! -z "$EXTRACTED_DIRS" ]; then
+        # Find the main directory and rename it
+        MAIN_DIR=$(echo "$EXTRACTED_DIRS" | head -1)
+        echo "🔄 Renaming $MAIN_DIR to iptv_xtream_codes"
+        mv "$MAIN_DIR" "/home/xtreamcodes/iptv_xtream_codes"
+    else
+        echo "❌ Archive doesn't contain expected XtreamCodes structure"
+        echo "   Extracted contents:"
+        ls -la /home/xtreamcodes/
+        exit 1
+    fi
+fi
+
+# Verify we now have the correct structure
+if [ ! -d "/home/xtreamcodes/iptv_xtream_codes" ]; then
+    echo "❌ Failed to create proper XtreamCodes directory structure"
+    exit 1
+fi
+
+echo "✅ REAL XtreamCodes files extracted and ready"
+
 # 🆕 Download database.sql from GitHub repository
 echo "📥 Downloading database.sql from Stefan's GitHub repository..."
-mkdir -p /tmp
 wget -q -O /tmp/database.sql "https://raw.githubusercontent.com/Stefan2512/Proper-Repairs-Xtream-Codes/master/database.sql"
 
 # Verify download
@@ -405,210 +513,29 @@ fi
 
 echo "✅ Database.sql downloaded successfully from GitHub"
 
-# Create basic XtreamCodes directory structure
-echo "📁 Creating XtreamCodes directory structure..."
-mkdir -p /home/xtreamcodes/iptv_xtream_codes/{admin,wwwdir,bin,logs,streams,tmp,nginx/{conf,logs},nginx_rtmp/{conf,logs},php,includes}
+# 🆕 DOWNLOAD ADDITIONAL FILES IF AVAILABLE
+echo "📥 Downloading additional enhanced files..."
 
-# Create basic admin and wwwdir files
-echo "📄 Creating basic application files..."
+# Try to download enhanced_updates.zip
+if wget -q --spider "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/latest/download/enhanced_updates.zip" 2>/dev/null; then
+    echo "📥 Downloading enhanced_updates.zip..."
+    if wget -q -O "/tmp/enhanced_updates.zip" "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/latest/download/enhanced_updates.zip" 2>/dev/null; then
+        cd /home/xtreamcodes/iptv_xtream_codes
+        if unzip -o "/tmp/enhanced_updates.zip" >/dev/null 2>&1; then
+            echo "✅ Enhanced updates applied"
+        fi
+        rm -f "/tmp/enhanced_updates.zip"
+    fi
+fi
 
-# Create admin index.php
-cat > /home/xtreamcodes/iptv_xtream_codes/admin/index.php << 'ADMINEOF'
-<?php
-// XtreamCodes Enhanced Admin Panel - Stefan Edition
-session_start();
-require_once '../includes/config.php';
-
-if (!isset($_SESSION['admin_logged'])) {
-    // Show login form
-    ?>
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>XtreamCodes Enhanced - Admin Panel</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-            body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin: 0; padding: 50px; }
-            .login-container { max-width: 400px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 15px 25px rgba(0,0,0,0.1); }
-            .logo { text-align: center; margin-bottom: 30px; color: #333; font-size: 24px; font-weight: bold; }
-            .form-group { margin-bottom: 20px; }
-            label { display: block; margin-bottom: 5px; color: #555; }
-            input[type="text"], input[type="password"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-            .btn { width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-            .btn:hover { background: #764ba2; }
-            .footer { text-align: center; margin-top: 20px; color: #777; font-size: 12px; }
-        </style>
-    </head>
-    <body>
-        <div class="login-container">
-            <div class="logo">🚀 XtreamCodes Enhanced</div>
-            <form method="post">
-                <div class="form-group">
-                    <label>Username:</label>
-                    <input type="text" name="username" required>
-                </div>
-                <div class="form-group">
-                    <label>Password:</label>
-                    <input type="password" name="password" required>
-                </div>
-                <button type="submit" class="btn">Login</button>
-            </form>
-            <div class="footer">
-                Stefan Edition v1.1 with Official Nginx<br>
-                <a href="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes" target="_blank">GitHub Repository</a>
-            </div>
-        </div>
-    </body>
-    </html>
-    <?php
-    exit;
-}
-
-// Admin dashboard
-?>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>XtreamCodes Enhanced - Dashboard</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        .success { background: #d4edda; color: #155724; padding: 15px; border-radius: 5px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>🎯 XtreamCodes Enhanced Dashboard</h1>
-        <p>Stefan Edition v1.1 with Official Nginx - Server Management Panel</p>
-    </div>
-    <div class="success">
-        ✅ XtreamCodes Enhanced is successfully installed and running!
-    </div>
-    <div class="dashboard">
-        <div class="card">
-            <h3>📊 System Status</h3>
-            <p><strong>Nginx:</strong> <span style="color: green;">●</span> Running (Official Ubuntu Version)</p>
-            <p><strong>PHP-FPM:</strong> <span style="color: green;">●</span> Running (v7.4)</p>
-            <p><strong>MariaDB:</strong> <span style="color: green;">●</span> Running</p>
-            <p><strong>Server IP:</strong> <?php echo $_SERVER['SERVER_ADDR']; ?></p>
-        </div>
-        <div class="card">
-            <h3>🌐 Access URLs</h3>
-            <p><strong>Admin Panel:</strong> Port <?php echo $_SERVER['SERVER_PORT']; ?></p>
-            <p><strong>Client Access:</strong> Port 5050</p>
-            <p><strong>API Access:</strong> Available</p>
-        </div>
-        <div class="card">
-            <h3>🛠️ Quick Actions</h3>
-            <p><a href="?page=streams">Manage Streams</a></p>
-            <p><a href="?page=users">Manage Users</a></p>
-            <p><a href="?page=settings">System Settings</a></p>
-            <p><a href="?logout=1">Logout</a></p>
-        </div>
-        <div class="card">
-            <h3>📈 Statistics</h3>
-            <p><strong>Total Streams:</strong> 0</p>
-            <p><strong>Active Users:</strong> 0</p>
-            <p><strong>Server Uptime:</strong> <?php echo shell_exec('uptime -p'); ?></p>
-        </div>
-    </div>
-    <div style="text-align: center; margin-top: 40px; color: #777;">
-        <p>🚀 <strong>Stefan's Enhanced XtreamCodes v1.1</strong></p>
-        <p>Repository: <a href="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes" target="_blank">GitHub</a></p>
-    </div>
-</body>
-</html>
-ADMINEOF
-
-# Create wwwdir index.php (API endpoint)
-cat > /home/xtreamcodes/iptv_xtream_codes/wwwdir/index.php << 'WWWEOF'
-<?php
-// XtreamCodes Enhanced API - Stefan Edition
-header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    exit(0);
-}
-
-$response = [
-    'status' => 'success',
-    'message' => 'XtreamCodes Enhanced API - Stefan Edition v1.1',
-    'server_info' => [
-        'version' => '1.1',
-        'edition' => 'Stefan Enhanced',
-        'nginx' => 'Official Ubuntu Version',
-        'php' => PHP_VERSION,
-        'timestamp' => time(),
-        'uptime' => shell_exec('uptime -p')
-    ],
-    'endpoints' => [
-        'player_api.php' => 'Player API',
-        'xmltv.php' => 'EPG/XMLTV',
-        'get.php' => 'Playlist Generator'
-    ],
-    'repository' => 'https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes'
-];
-
-echo json_encode($response, JSON_PRETTY_PRINT);
-?>
-WWWEOF
-
-# Create basic config file
-echo "⚙️ Creating configuration files..."
-
-cat > /home/xtreamcodes/iptv_xtream_codes/includes/config.php << 'CONFIGEOF'
-<?php
-// XtreamCodes Enhanced Configuration - Stefan Edition
-define('DB_HOST', '127.0.0.1');
-define('DB_PORT', 7999);
-define('DB_USER', 'user_iptvpro');
-define('DB_PASS', 'REPLACE_WITH_MYSQL_PASS');
-define('DB_NAME', 'xtream_iptvpro');
-
-// Server Configuration
-define('SERVER_NAME', 'XtreamCodes Enhanced');
-define('ADMIN_USERNAME', 'REPLACE_WITH_ADMIN_USER');
-define('ADMIN_PASSWORD', 'REPLACE_WITH_ADMIN_PASS');
-
-// Enhanced Features
-define('STEFAN_VERSION', '1.1');
-define('NGINX_VERSION', 'Official Ubuntu');
-define('INSTALLATION_DATE', date('Y-m-d H:i:s'));
-
-try {
-    $pdo = new PDO("mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME, DB_USER, DB_PASS);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch(PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
-}
-
-// Handle login
-if ($_POST && isset($_POST['username']) && isset($_POST['password'])) {
-    if ($_POST['username'] === ADMIN_USERNAME && $_POST['password'] === ADMIN_PASSWORD) {
-        session_start();
-        $_SESSION['admin_logged'] = true;
-        header('Location: ' . $_SERVER['PHP_SELF']);
-        exit;
-    }
-}
-
-// Handle logout
-if (isset($_GET['logout'])) {
-    session_start();
-    session_destroy();
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit;
-}
-?>
-CONFIGEOF
+# Try to download GeoLite2.mmdb
+if wget -q --spider "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/latest/download/GeoLite2.mmdb" 2>/dev/null; then
+    echo "📥 Downloading GeoLite2.mmdb..."
+    wget -q -O "/home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb" "https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/latest/download/GeoLite2.mmdb" 2>/dev/null
+    if [ -f "/home/xtreamcodes/iptv_xtream_codes/GeoLite2.mmdb" ]; then
+        echo "✅ GeoLite2.mmdb downloaded"
+    fi
+fi
 
 echo "⚙️  Configuring MariaDB for XtreamCodes..."
 
@@ -752,11 +679,6 @@ mysql -u root -p$PASSMYSQL xtream_iptvpro << EOL >/dev/null 2>&1
 INSERT INTO reg_users (id, username, password, email, ip, date_registered, verify_key, verified, member_group_id, status, last_login, exp_date, admin_enabled, admin_notes, reseller_dns, owner_id, override_packages, google_2fa_sec) VALUES 
 (1, '$adminL', '$Padmin', '$EMAIL', '', UNIX_TIMESTAMP(), '', 1, 1, 1, NULL, 4070905200, 1, '', '', 0, '', '');
 EOL
-
-# Update config file with actual values
-sed -i "s/REPLACE_WITH_MYSQL_PASS/$XPASS/g" /home/xtreamcodes/iptv_xtream_codes/includes/config.php
-sed -i "s/REPLACE_WITH_ADMIN_USER/$adminL/g" /home/xtreamcodes/iptv_xtream_codes/includes/config.php
-sed -i "s/REPLACE_WITH_ADMIN_PASS/$adminP/g" /home/xtreamcodes/iptv_xtream_codes/includes/config.php
 
 # 🆕 CONFIGURE NGINX FOR XTREAMCODES
 echo "🌐 Configuring official Nginx for XtreamCodes..."
@@ -902,6 +824,13 @@ EOL
 
 echo "🔧 Configuring system permissions and services..."
 
+# Set proper ownership and permissions for REAL XtreamCodes files
+chown -R xtreamcodes:xtreamcodes /home/xtreamcodes
+
+# Make executable files executable (preserve original XtreamCodes permissions)
+find /home/xtreamcodes/iptv_xtream_codes -name "*.sh" -exec chmod +x {} \; 2>/dev/null
+find /home/xtreamcodes/iptv_xtream_codes/bin -type f -exec chmod +x {} \; 2>/dev/null
+
 # Configure system permissions
 if ! grep -q "xtreamcodes ALL = (root) NOPASSWD: /sbin/iptables, /usr/bin/chattr, /usr/bin/python2, /usr/bin/python" /etc/sudoers; then
     echo "xtreamcodes ALL = (root) NOPASSWD: /sbin/iptables, /usr/bin/chattr, /usr/bin/python2, /usr/bin/python" >> /etc/sudoers
@@ -922,19 +851,15 @@ mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET live_streaming
 mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET unique_id = '$eee' WHERE settings.id = 1;" 2>/dev/null
 mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET crypt_load_balancing = '$rrr' WHERE settings.id = 1;" 2>/dev/null
 
-# Set proper ownership
-chown -R xtreamcodes:xtreamcodes /home/xtreamcodes
-chown -R www-data:www-data /home/xtreamcodes/iptv_xtream_codes/admin
-chown -R www-data:www-data /home/xtreamcodes/iptv_xtream_codes/wwwdir
-
 # Mount tmpfs filesystems
 mount -a 2>/dev/null
 mkdir -p /home/xtreamcodes/iptv_xtream_codes/streams /home/xtreamcodes/iptv_xtream_codes/tmp
 chmod 1777 /home/xtreamcodes/iptv_xtream_codes/streams /home/xtreamcodes/iptv_xtream_codes/tmp
 
-# 🆕 CREATE ENHANCED START SERVICES SCRIPT
-echo "🚀 Creating enhanced start services script..."
-cat > /home/xtreamcodes/iptv_xtream_codes/start_services.sh << 'STARTSCRIPT'
+# Create enhanced management scripts (check if original doesn't exist)
+if [ ! -f "/home/xtreamcodes/iptv_xtream_codes/start_services.sh" ]; then
+    echo "🚀 Creating enhanced start services script..."
+    cat > /home/xtreamcodes/iptv_xtream_codes/start_services.sh << 'STARTSCRIPT'
 #!/bin/bash
 # XtreamCodes Enhanced Start Services Script - Stefan Edition with Official Nginx
 
@@ -980,10 +905,14 @@ echo -e "${YELLOW}🌐 Starting official Nginx...${NC}"
 systemctl start nginx
 sleep 2
 
-# Start additional services (if any binaries exist)
+# Start XtreamCodes services (if binaries exist)
 if [ -f "./bin/nginx" ]; then
-    echo -e "${YELLOW}⚙️  Starting additional services...${NC}"
+    echo -e "${YELLOW}⚙️  Starting XtreamCodes services...${NC}"
     ./bin/nginx 2>/dev/null &
+fi
+
+if [ -f "./bin/nginx_rtmp" ]; then
+    ./bin/nginx_rtmp 2>/dev/null &
 fi
 
 sleep 3
@@ -1000,10 +929,10 @@ check_service "nginx.*master" "Nginx (Official)"
 echo ""
 echo -e "${GREEN}🎯 XtreamCodes Enhanced services started!${NC}"
 STARTSCRIPT
+    chmod +x /home/xtreamcodes/iptv_xtream_codes/start_services.sh
+fi
 
-chmod +x /home/xtreamcodes/iptv_xtream_codes/start_services.sh
-
-# 🆕 CREATE STATUS CHECK SCRIPT
+# Create status check script (enhanced version)
 cat > /home/xtreamcodes/iptv_xtream_codes/check_status.sh << 'STATUSSCRIPT'
 #!/bin/bash
 # XtreamCodes Enhanced Status Check - Stefan Edition
@@ -1094,6 +1023,19 @@ else
     echo -e "${RED}❌ XtreamCodes Directory${NC} - Missing"
 fi
 
+# Check for REAL XtreamCodes files
+if [ -d "/home/xtreamcodes/iptv_xtream_codes/admin" ]; then
+    echo -e "${GREEN}✅ Admin Directory${NC} - Present"
+else
+    echo -e "${RED}❌ Admin Directory${NC} - Missing"
+fi
+
+if [ -d "/home/xtreamcodes/iptv_xtream_codes/wwwdir" ]; then
+    echo -e "${GREEN}✅ WWW Directory${NC} - Present"
+else
+    echo -e "${RED}❌ WWW Directory${NC} - Missing"
+fi
+
 # Check tmpfs mounts
 if mountpoint -q /home/xtreamcodes/iptv_xtream_codes/streams 2>/dev/null; then
     echo -e "${GREEN}✅ Streams tmpfs${NC} - Mounted"
@@ -1147,8 +1089,9 @@ STATUSSCRIPT
 
 chmod +x /home/xtreamcodes/iptv_xtream_codes/check_status.sh
 
-# 🆕 CREATE RESTART SERVICES SCRIPT
-cat > /home/xtreamcodes/iptv_xtream_codes/restart_services.sh << 'RESTARTSCRIPT'
+# Create restart services script (if not exists)
+if [ ! -f "/home/xtreamcodes/iptv_xtream_codes/restart_services.sh" ]; then
+    cat > /home/xtreamcodes/iptv_xtream_codes/restart_services.sh << 'RESTARTSCRIPT'
 #!/bin/bash
 # XtreamCodes Enhanced Restart Services - Stefan Edition
 
@@ -1166,7 +1109,7 @@ echo -e "${YELLOW}🛑 Stopping services...${NC}"
 systemctl stop nginx 2>/dev/null
 systemctl stop php7.4-fpm 2>/dev/null
 
-# Kill any additional processes
+# Kill any XtreamCodes processes
 pkill -f "nginx.*xtreamcodes" 2>/dev/null
 
 sleep 3
@@ -1179,8 +1122,8 @@ echo ""
 echo -e "${GREEN}✅ Service restart completed!${NC}"
 echo "Check status: /home/xtreamcodes/iptv_xtream_codes/check_status.sh"
 RESTARTSCRIPT
-
-chmod +x /home/xtreamcodes/iptv_xtream_codes/restart_services.sh
+    chmod +x /home/xtreamcodes/iptv_xtream_codes/restart_services.sh
+fi
 
 # System optimizations
 echo "⚡ Applying system optimizations..."
@@ -1242,10 +1185,6 @@ fi
 
 echo "🚀 Starting XtreamCodes Enhanced services with official Nginx..."
 
-# Ensure proper permissions
-chown -R xtreamcodes:xtreamcodes /home/xtreamcodes
-chmod +x /home/xtreamcodes/iptv_xtream_codes/*.sh
-
 # Start PHP-FPM first
 systemctl start php7.4-fpm
 sleep 2
@@ -1301,9 +1240,11 @@ NGINXBACKUP
     nginx -t && systemctl start nginx
 fi
 
-# Start additional XtreamCodes processes
+# Start XtreamCodes processes
 cd /home/xtreamcodes/iptv_xtream_codes
-./start_services.sh >/dev/null 2>&1
+if [ -f "./start_services.sh" ]; then
+    ./start_services.sh >/dev/null 2>&1
+fi
 
 # Wait for services to start
 sleep 10
@@ -1322,7 +1263,7 @@ if [ $nginx_running -eq 0 ]; then
     success=false
 fi
 
-if [ $phpfmp_running -eq 0 ]; then
+if [ $phpfpm_running -eq 0 ]; then
     echo "⚠️  Warning: PHP-FPM is not running"
     success=false
 fi
@@ -1362,7 +1303,7 @@ if command -v netstat >/dev/null 2>&1; then
 fi
 
 # Clean up temp files
-rm -f /tmp/database.sql
+rm -f /tmp/database.sql /tmp/$ARCHIVE_NAME
 
 # Final status
 clear
@@ -1372,7 +1313,7 @@ if $success && $socket_ok; then
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "                    🎯 INSTALLATION COMPLETE - STEFAN EDITION v1.1"
-    echo "                           🆕 WITH OFFICIAL NGINX + GITHUB DATABASE"
+    echo "                       🆕 WITH REAL ARCHIVES + OFFICIAL NGINX"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 else
     echo "⚠️  XtreamCodes Enhanced installed with warnings"
@@ -1401,6 +1342,7 @@ echo "🗄️  MySQL Pass:     $XPASS"
 echo "🕐 Timezone:        $tz"
 echo "🌐 Nginx Version:   $(nginx -v 2>&1 | cut -d' ' -f3)"
 echo "🐘 PHP Version:     $(php7.4 -v | head -1 | cut -d' ' -f2)"
+echo "📦 Archive Used:    $ARCHIVE_NAME"
 echo ""
 echo "📊 SERVICE STATUS:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1425,13 +1367,13 @@ echo "🔧 Nginx Reload:    systemctl reload nginx"
 echo ""
 echo "🆕 STEFAN'S v1.1 ENHANCED FEATURES:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ REAL XtreamCodes archives from releases (NO DEMO FILES!)"
 echo "✅ Official Ubuntu Nginx (nu cel vechi din XtreamCodes!)"
 echo "✅ PHP 7.4 cu optimizări complete"
 echo "✅ Database.sql descărcat din GitHub repository"
 echo "✅ All dependency fixes applied automatically"
 echo "✅ libzip.so.4 compatibility ensured"
 echo "✅ Enhanced nginx configuration with rate limiting"
-echo "✅ Basic admin panel și API endpoint incluse"
 echo "✅ System performance optimizations"
 echo "✅ Advanced management scripts created"
 echo "✅ Auto-restart on boot configured"
@@ -1445,7 +1387,7 @@ cat > /root/XtreamCodes_Stefan_Installation_v1.1.txt << EOL
 ┌─────────────────── XtreamCodes Stefan Enhanced Installation v1.1 ───────────────────┐
 │
 │ INSTALLATION COMPLETED: $(date)
-│ VERSION: Stefan Enhanced v1.1 with Official Nginx + GitHub Database
+│ VERSION: Stefan Enhanced v1.1 with REAL Archives + Official Nginx
 │
 │ ADMIN ACCESS:
 │ Panel URL: http://$ipaddr:$ACCESPORT
@@ -1462,6 +1404,7 @@ cat > /root/XtreamCodes_Stefan_Installation_v1.1.txt << EOL
 │ Timezone:         $tz
 │ Nginx Version:    $(nginx -v 2>&1 | cut -d' ' -f3)
 │ PHP Version:      $(php7.4 -v | head -1 | cut -d' ' -f2)
+│ Archive Used:     $ARCHIVE_NAME
 │
 │ SERVICE STATUS:
 │ Nginx (Official): $nginx_running processes
@@ -1475,10 +1418,10 @@ cat > /root/XtreamCodes_Stefan_Installation_v1.1.txt << EOL
 │ Nginx Reload: systemctl reload nginx
 │
 │ STEFAN'S v1.1 ENHANCED FEATURES:
+│ ✓ REAL XtreamCodes archives from releases (NO DEMO FILES!)
 │ ✓ Official Ubuntu Nginx (not the old XtreamCodes one!)
 │ ✓ PHP 7.4 with complete optimizations
 │ ✓ Database.sql downloaded from GitHub repository
-│ ✓ Basic admin panel and API endpoints included
 │ ✓ All dependency fixes included
 │ ✓ libzip.so.4 compatibility
 │ ✓ Enhanced nginx config with rate limiting
@@ -1487,7 +1430,7 @@ cat > /root/XtreamCodes_Stefan_Installation_v1.1.txt << EOL
 │ ✓ Auto-restart configured
 │
 │ Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
-│ Version: Stefan Enhanced v1.1 - Official Nginx + GitHub Database Edition
+│ Version: Stefan Enhanced v1.1 - REAL Archives Edition
 │ Installer Log: $logfile
 │
 └──────────────────────────────────────────────────────────────────────────────────────┘
@@ -1498,13 +1441,13 @@ echo "📝 Installation log: $logfile"
 echo ""
 
 if $success && $socket_ok; then
-    echo "🎉 Congratulations! Your XtreamCodes Enhanced server with official Nginx is ready!"
+    echo "🎉 Congratulations! Your XtreamCodes Enhanced server is ready!"
     echo "🌐 Access your admin panel: http://$ipaddr:$ACCESPORT"
     echo ""
     echo "🆕 NEW FEATURES IN v1.1:"
+    echo "   • REAL XtreamCodes archives from releases (NO DEMO FILES!)"
     echo "   • Official Ubuntu Nginx instead of the old bundled version!"
     echo "   • Database.sql downloaded directly from GitHub repository!"
-    echo "   • Basic admin panel and API endpoint ready to use!"
     echo ""
     echo "🔧 Test nginx config anytime: nginx -t"
     echo "🔄 Reload nginx config: systemctl reload nginx"
@@ -1517,8 +1460,8 @@ fi
 
 echo ""
 echo "🙏 Thank you for using Stefan's Enhanced XtreamCodes Installer v1.1!"
-echo "🆕 Now with official Ubuntu Nginx + GitHub database download!"
+echo "🆕 Now uses REAL archives + official Ubuntu Nginx!"
 echo "🔗 Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
 echo ""
 
-# End of Stefan's Enhanced Installer v1.1 with Official Nginx + GitHub Database
+# End of Stefan's Enhanced Installer v1.1 with REAL Archives + Official Nginx
