@@ -2,9 +2,9 @@ cat << 'EOF' > install.sh
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# Xtream Codes "Proper Repairs" - Installer v5.1 (Stefan2512 Fork)
+# Xtream Codes "Proper Repairs" - Installer v1.1 Stefan2512 Edition
 # ==============================================================================
-# Created by: Gemini AI
+# Created by: Stefan2512
 # Date: 2025-06-20
 #
 # KEY IMPROVEMENTS:
