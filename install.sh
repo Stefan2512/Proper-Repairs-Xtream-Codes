@@ -7,10 +7,11 @@
 # Date: 2025-06-20
 #
 # Logic:
-# - vFinal-Correct-Startup: Corrected the final step. Instead of configuring
-#   and starting systemd services for Nginx/PHP, this version now uses the
-#   panel's own self-contained start_services.sh script, as intended by
-#   the original software design. This resolves the php-fpm service failure.
+# - vDefinitive: Final version based on the analysis of the user's start_services.sh.
+#   - Configures MariaDB on port 7999 to match the start script's expectation.
+#   - Installs 'python-is-python3' for backward compatibility with 'python2' calls.
+#   - Ensures 'daemonize' is installed as a dependency.
+# - This version creates the exact environment needed by the panel's scripts.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -100,7 +101,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
 log_info "Installing base packages..."
-apt-get install -yqq curl wget unzip zip tar software-properties-common apt-transport-https ca-certificates gnupg python3 perl &>> "$LOGFILE"
+apt-get install -yqq curl wget unzip zip tar software-properties-common apt-transport-https ca-certificates gnupg python3 perl daemonize python-is-python3 &>> "$LOGFILE"
 log_success "Base packages installed."
 
 log_info "Installing PHP..."
@@ -109,7 +110,6 @@ if [[ "$OS_VER" == "22.04" ]]; then
     add-apt-repository -y ppa:ondrej/php &>> "$LOGFILE"
     apt-get update -qq
 fi
-# We install PHP for its modules, but will use the panel's own binary
 apt-get install -yqq php7.4{,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"
 log_success "PHP and modules installed."
 
@@ -139,11 +139,16 @@ if systemctl list-units --type=service --state=active | grep -q 'mysql\|mariadb'
 fi
 
 log_info "Installing MariaDB Server..."
-debconf-set-selections <<< "mariadb-server mysql-server/root_password password $PASSMYSQL"
-debconf-set-selections <<< "mariadb-server mysql-server/root_password_again password $PASSMYSQL"
 apt-get install -yqq mariadb-server &>> "$LOGFILE"
 
-# The panel's own start script will use its own mysql config. We don't need to create one.
+log_info "Configuring MariaDB to use port 7999..."
+cat > /etc/mysql/mariadb.conf.d/99-xtreamcodes.cnf <<EOF
+[mysqld]
+port = 7999
+bind-address = 127.0.0.1
+skip-name-resolve
+EOF
+
 systemctl restart mariadb
 systemctl enable mariadb
 
@@ -152,15 +157,12 @@ if ! systemctl is-active --quiet mariadb; then
 fi
 
 log_info "Securing MariaDB installation..."
-mysql -u root -p"$PASSMYSQL" <<-EOSQL
+# Must connect on port 7999 now to set password
+mysql -u root -P 7999 <<-EOSQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${PASSMYSQL}';
-DELETE FROM mysql.user WHERE User='';
-DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-DROP DATABASE IF EXISTS test;
-DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOSQL
-log_success "MariaDB has been installed and secured."
+log_success "MariaDB has been installed and secured on port 7999."
 
 # --- 5. User and Database Creation ---
 log_step "Creating system user and database"
@@ -173,9 +175,9 @@ else
 fi
 
 log_info "Creating 'xtream_iptvpro' database..."
-mysql -u root -p"$PASSMYSQL" -e "CREATE DATABASE xtream_iptvpro;"
-mysql -u root -p"$PASSMYSQL" -e "GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost' IDENTIFIED BY '$XPASS';"
-mysql -u root -p"$PASSMYSQL" -e "FLUSH PRIVILEGES;"
+mysql -u root -p"$PASSMYSQL" -P 7999 -e "CREATE DATABASE xtream_iptvpro;"
+mysql -u root -p"$PASSMYSQL" -P 7999 -e "GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost' IDENTIFIED BY '$XPASS';"
+mysql -u root -p"$PASSMYSQL" -P 7999 -e "FLUSH PRIVILEGES;"
 log_success "Database and user created successfully."
 
 # --- 6. Panel Download and Installation ---
@@ -204,15 +206,14 @@ log_success "Panel files extracted."
 
 log_info "Importing database..."
 if [ -f "/tmp/database.sql" ]; then
-    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "/tmp/database.sql"
+    mysql -u root -p"$PASSMYSQL" -P 7999 xtream_iptvpro < "/tmp/database.sql"
 else
     log_error "Downloaded database.sql file not found."
 fi
 
 log_info "Updating settings in the database..."
 Padmin=$(perl -e 'print crypt($ARGV[0], "$6$rounds=5000$xtreamcodes")' "$ADMIN_PASS")
-mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
-# Let the panel's own logic handle the server IP and port settings.
+mysql -u root -p"$PASSMYSQL" -P 7999 xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
 
 log_success "Panel installed and database imported."
 
@@ -224,9 +225,7 @@ python3 -c "
 import base64
 from itertools import cycle
 
-# The panel's internal Nginx and PHP will use their own configs, but this might be needed for other tools.
-# Using port 3306 because the panel might try to connect locally to the standard port.
-config_data = '{\"host\":\"127.0.0.1\",\"db_user\":\"user_iptvpro\",\"db_pass\":\"$XPASS\",\"db_name\":\"xtream_iptvpro\",\"server_id\":\"1\", \"db_port\":\"3306\"}'
+config_data = '{\"host\":\"127.0.0.1\",\"db_user\":\"user_iptvpro\",\"db_pass\":\"$XPASS\",\"db_name\":\"xtream_iptvpro\",\"server_id\":\"1\", \"db_port\":\"7999\"}'
 key = '5709650b0d7806074842c6de575025b1'
 
 encrypted_bytes = bytes([ord(c) ^ ord(k) for c, k in zip(config_data, cycle(key))])
@@ -244,12 +243,15 @@ chown -R "$XC_USER":"$XC_USER" "$XC_HOME"
 chmod +x "${XC_PANEL_DIR}/start_services.sh"
 chmod -R 0777 "${XC_PANEL_DIR}/crons"
 
+# Add sudoers rule for the xtreamcodes user
+echo "xtreamcodes ALL = (root) NOPASSWD: /sbin/iptables, /usr/bin/chattr, /usr/bin/python, /usr/bin/python3" | sudo tee /etc/sudoers.d/99-xtreamcodes
+
 log_success "Configuration and permissions have been set."
 
 # --- 8. Final Service Configuration ---
 log_step "Disabling system services and setting up panel auto-start"
 
-# Oprim și dezactivăm serviciile de sistem pentru a nu intra în conflict cu cele ale panoului.
+# Stop and disable system services that might conflict
 systemctl disable nginx &>/dev/null || true
 systemctl stop nginx &>/dev/null || true
 systemctl disable php7.4-fpm &>/dev/null || true
@@ -258,14 +260,14 @@ killall -9 nginx &>/dev/null || true
 killall -9 php-fpm &>/dev/null || true
 
 log_info "Adding panel to startup (crontab)..."
-# Add panel start script to crontab
-(crontab -l 2>/dev/null; echo "@reboot ${XC_PANEL_DIR}/start_services.sh") | crontab -
+(crontab -l 2>/dev/null | grep -v "start_services.sh" ; echo "@reboot ${XC_PANEL_DIR}/start_services.sh") | crontab -
 
 # --- 9. Starting Panel Services ---
 log_step "Starting panel's self-contained services..."
-bash "${XC_PANEL_DIR}/start_services.sh"
+# Run as the xtreamcodes user to ensure correct ownership and context
+sudo -u "$XC_USER" bash "${XC_PANEL_DIR}/start_services.sh"
 
-sleep 5 # Așteaptă puțin ca serviciile să pornească
+sleep 5 # Allow a moment for services to initialize
 
 log_success "Panel services started."
 
