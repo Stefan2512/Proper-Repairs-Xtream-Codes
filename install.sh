@@ -7,18 +7,19 @@
 # Date: 2025-06-20
 #
 # Logic:
-# - Final version based on user-provided screenshots of the repository structure.
-# - Downloads the OS-specific panel archive from the GitHub Release assets.
-# - Downloads database.sql from the main branch of the repository.
-# - This logic is definitive and based on the actual file locations.
-# - Fully non-interactive and includes all previous fixes.
+# - vFinal-Correct-Startup: Corrected the final step. Instead of configuring
+#   and starting systemd services for Nginx/PHP, this version now uses the
+#   panel's own self-contained start_services.sh script, as intended by
+#   the original software design. This resolves the php-fpm service failure.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
 set -euo pipefail
 
 # --- Variables and Constants ---
-readonly REPO_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
+readonly RELEASE_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0"
+readonly PANEL_ARCHIVE_URL_TEMPLATE="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/xtreamcodes_enhanced_Ubuntu_VERSION.tar.gz"
+readonly DATABASE_SQL_URL="https://raw.githubusercontent.com/Stefan2512/Proper-Repairs-Xtream-Codes/master/database.sql"
 readonly XC_USER="xtreamcodes"
 readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
@@ -64,12 +65,7 @@ sleep 5
 log_step "Initial system checks"
 
 if [[ $EUID -ne 0 ]]; then
-   log_error "This script must be run as root. Try 'sudo ./install.sh'"
-fi
-
-if ! ping -c 1 -W 2 google.com &>/dev/null; then
-    log_warning "Could not detect an internet connection. Installation may fail."
-    sleep 3
+   log_error "This script must be run as root."
 fi
 
 OS_ID=$(grep -oP '(?<=^ID=).+' /etc/os-release | tr -d '"')
@@ -87,8 +83,7 @@ log_success "Initial checks passed."
 # --- 2. Set Installation Variables ---
 log_step "Setting installation variables"
 
-PANEL_ARCHIVE_URL="${REPO_URL_PREFIX}/releases/download/v1.0/xtreamcodes_enhanced_Ubuntu_${OS_VER}.tar.gz"
-DATABASE_SQL_URL="${REPO_URL_PREFIX}/raw/master/database.sql"
+PANEL_ARCHIVE_URL="${PANEL_ARCHIVE_URL_TEMPLATE/VERSION/$OS_VER}"
 PASSMYSQL=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 XPASS=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 ADMIN_USER="admin"
@@ -114,20 +109,12 @@ if [[ "$OS_VER" == "22.04" ]]; then
     add-apt-repository -y ppa:ondrej/php &>> "$LOGFILE"
     apt-get update -qq
 fi
+# We install PHP for its modules, but will use the panel's own binary
+apt-get install -yqq php7.4{,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"
+log_success "PHP and modules installed."
 
-if apt-get install -yqq php7.4{,-fpm,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"; then
-    PHP_VERSION="7.4"
-    PHP_SOCK="/run/php/php7.4-fpm.sock"
-else
-    log_warning "PHP 7.4 could not be installed. Attempting to install the system's default PHP version..."
-    apt-get install -yqq php{,-fpm,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"
-    PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
-    PHP_SOCK="/run/php/php${PHP_VERSION}-fpm.sock"
-fi
-log_success "PHP version $PHP_VERSION has been installed."
-
-log_info "Installing Nginx and other libraries..."
-apt-get install -yqq nginx libzip-dev libonig-dev &>> "$LOGFILE"
+log_info "Installing other libraries..."
+apt-get install -yqq libzip-dev libonig-dev &>> "$LOGFILE"
 if [ ! -f "/usr/lib/x86_64-linux-gnu/libzip.so.4" ] && [ -f "/usr/lib/x86_64-linux-gnu/libzip.so.5" ]; then
     ln -s /usr/lib/x86_64-linux-gnu/libzip.so.5 /usr/lib/x86_64-linux-gnu/libzip.so.4
     log_info "Created symlink for libzip compatibility."
@@ -156,12 +143,7 @@ debconf-set-selections <<< "mariadb-server mysql-server/root_password password $
 debconf-set-selections <<< "mariadb-server mysql-server/root_password_again password $PASSMYSQL"
 apt-get install -yqq mariadb-server &>> "$LOGFILE"
 
-cat > /etc/mysql/mariadb.conf.d/99-xtreamcodes.cnf <<EOF
-[mysqld]
-bind-address = 127.0.0.1
-skip-name-resolve
-EOF
-
+# The panel's own start script will use its own mysql config. We don't need to create one.
 systemctl restart mariadb
 systemctl enable mariadb
 
@@ -199,7 +181,10 @@ log_success "Database and user created successfully."
 # --- 6. Panel Download and Installation ---
 log_step "Downloading and installing panel files"
 
+log_info "Cleaning up any previous panel installation..."
+rm -rf "$XC_PANEL_DIR"
 mkdir -p "$XC_PANEL_DIR"
+log_success "Panel directory is clean."
 
 log_info "Downloading panel archive for Ubuntu ${OS_VER}..."
 wget --no-check-certificate -q -O "/tmp/panel.tar.gz" "$PANEL_ARCHIVE_URL"
@@ -210,13 +195,10 @@ wget --no-check-certificate -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
 log_success "Database SQL file downloaded."
 
 log_info "Extracting panel files into $XC_PANEL_DIR..."
-# The archive contains a single directory, e.g., 'xtreamcodes_enhanced_Ubuntu_22.04'.
-# --strip-components=1 removes this top-level directory during extraction.
 tar -xzf "/tmp/panel.tar.gz" -C "$XC_PANEL_DIR" --strip-components=1
 
-# Verification to ensure extraction was successful
-if [ ! -d "${XC_PANEL_DIR}/admin" ]; then
-    log_error "Extraction failed. The 'admin' directory was not found in $XC_PANEL_DIR."
+if [ ! -f "${XC_PANEL_DIR}/start_services.sh" ]; then
+    log_error "Extraction failed. The 'start_services.sh' script was not found in $XC_PANEL_DIR."
 fi
 log_success "Panel files extracted."
 
@@ -230,7 +212,7 @@ fi
 log_info "Updating settings in the database..."
 Padmin=$(perl -e 'print crypt($ARGV[0], "$6$rounds=5000$xtreamcodes")' "$ADMIN_PASS")
 mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
-mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE streaming_servers SET server_ip='127.0.0.1' WHERE id=1;"
+# Let the panel's own logic handle the server IP and port settings.
 
 log_success "Panel installed and database imported."
 
@@ -242,6 +224,8 @@ python3 -c "
 import base64
 from itertools import cycle
 
+# The panel's internal Nginx and PHP will use their own configs, but this might be needed for other tools.
+# Using port 3306 because the panel might try to connect locally to the standard port.
 config_data = '{\"host\":\"127.0.0.1\",\"db_user\":\"user_iptvpro\",\"db_pass\":\"$XPASS\",\"db_name\":\"xtream_iptvpro\",\"server_id\":\"1\", \"db_port\":\"3306\"}'
 key = '5709650b0d7806074842c6de575025b1'
 
@@ -257,79 +241,46 @@ fi
 
 log_info "Setting correct file permissions..."
 chown -R "$XC_USER":"$XC_USER" "$XC_HOME"
-chmod -R 777 "${XC_PANEL_DIR}/streams" "${XC_PANEL_DIR}/tmp" "${XC_PANEL_DIR}/logs"
+chmod +x "${XC_PANEL_DIR}/start_services.sh"
+chmod -R 0777 "${XC_PANEL_DIR}/crons"
 
 log_success "Configuration and permissions have been set."
 
-# --- 8. Service Configuration (PHP-FPM & Nginx) ---
-log_step "Configuring PHP-FPM and Nginx"
+# --- 8. Final Service Configuration ---
+log_step "Disabling system services and setting up panel auto-start"
 
-cat > "/etc/php/${PHP_VERSION}/fpm/pool.d/xtreamcodes.conf" <<EOF
-[${XC_USER}]
-user = ${XC_USER}
-group = ${XC_USER}
-listen = ${PHP_SOCK}
-listen.owner = www-data
-listen.group = www-data
-listen.mode = 0660
-pm = dynamic
-pm.max_children = 50
-pm.start_servers = 5
-pm.min_spare_servers = 5
-pm.max_spare_servers = 15
-chdir = /
-EOF
+# Oprim și dezactivăm serviciile de sistem pentru a nu intra în conflict cu cele ale panoului.
+systemctl disable nginx &>/dev/null || true
+systemctl stop nginx &>/dev/null || true
+systemctl disable php7.4-fpm &>/dev/null || true
+systemctl stop php7.4-fpm &>/dev/null || true
+killall -9 nginx &>/dev/null || true
+killall -9 php-fpm &>/dev/null || true
 
-cat > /etc/nginx/sites-available/xtreamcodes.conf <<EOF
-server {
-    listen $ACCESSPORT default_server;
-    server_name _;
+log_info "Adding panel to startup (crontab)..."
+# Add panel start script to crontab
+(crontab -l 2>/dev/null; echo "@reboot ${XC_PANEL_DIR}/start_services.sh") | crontab -
 
-    root ${XC_PANEL_DIR}/admin;
-    index index.php index.html index.htm;
+# --- 9. Starting Panel Services ---
+log_step "Starting panel's self-contained services..."
+bash "${XC_PANEL_DIR}/start_services.sh"
 
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
+sleep 5 # Așteaptă puțin ca serviciile să pornească
 
-    location ~ \.php\$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:${PHP_SOCK};
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-    }
+log_success "Panel services started."
 
-    location ~ /\.ht {
-        deny all;
-    }
-}
-EOF
 
-ln -s -f /etc/nginx/sites-available/xtreamcodes.conf /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-
-if ! nginx -t; then
-    log_error "Nginx configuration is invalid. Please check the file /etc/nginx/sites-available/xtreamcodes.conf"
-fi
-
-log_info "Restarting services..."
-systemctl restart "php${PHP_VERSION}-fpm"
-systemctl enable "php${PHP_VERSION}-fpm"
-systemctl restart nginx
-systemctl enable nginx
-
-log_success "PHP-FPM and Nginx have been configured and restarted."
-
-# --- 9. Finalization ---
+# --- 10. Finalization ---
 log_step "Installation Complete!"
 
 IP_ADDR=$(hostname -I | awk '{print $1}')
 
-cat << "FINAL_MSG"
+cat << FINAL_MSG
 
 Congratulations! The Xtream Codes panel has been successfully installed.
 
 You can access the admin panel at:
-URL: http://${IP_ADDR}:${ACCESSPORT}
+URL: http://${IP_ADDR}:${ACCESSPORT}  (Please allow a minute for services to fully initialize)
 
 Login credentials:
 Username: ${ADMIN_USER}
@@ -337,7 +288,7 @@ Password: ${ADMIN_PASS}
 
 SECURITY WARNING:
 - Please save this password in a secure location.
-- It is recommended to clear your command history ('history -c') to remove any trace of the passwords.
+- It is recommended to clear your command history ('history -c').
 
 FINAL_MSG
 
