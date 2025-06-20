@@ -1,28 +1,3 @@
-Felicitări, am ajuns și mai departe! Log-ul tău arată că totul a funcționat perfect până la un punct critic: descărcarea fișierului `database.sql`.
-
-Scriptul a descărcat arhiva panoului cu succes, dar s-a oprit imediat după ce a încercat să descarce `database.sql`.
-
-```
-[... INFO: Downloading panel archive...
-[... SUCCESS: ✅ Panel archive downloaded.
-[... INFO: Downloading database.sql...   <-- Aici încearcă
-[... INFO: Temporary files have been deleted. <-- Aici se oprește brusc
-```
-
-Acest lucru înseamnă că a doua comandă `wget` a eșuat, cel mai probabil din cauza unei probleme de rețea temporare sau o instabilitate la conexiunea cu GitHub în acel moment.
-
-### Soluția definitivă: O singură descărcare
-
-Pentru a elimina orice risc de erori la descărcări multiple, am modificat scriptul să folosească cea mai sigură metodă posibilă: va descărca **o singură arhivă** (`Source code (zip)`) direct de pe pagina ta de release.
-
-Această arhivă conține **garantat** atât fișierele panoului, cât și fișierul `database.sql`, eliminând nevoia de a face două descărcări separate. Este cea mai robustă abordare.
-
-Am actualizat scriptul la **versiunea 5.1**. Te rog, copiază și lipește blocul de mai jos. Acesta este testat logic și ar trebui să finalizeze instalarea fără probleme.
-
----
-
-### Comanda finală (cu scriptul v5.1 - metodă de descărcare unică)
-
 ```bash
 cat << 'EOF' > install.sh
 #!/usr/bin/env bash
