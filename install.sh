@@ -7,10 +7,10 @@
 # Date: 2025-06-20
 #
 # Logic:
-# - vDefinitive-3: Corrected MariaDB user logic. The script now creates the
-#   panel user ('user_iptvpro') on the default port first, then switches
-#   to the custom port and uses the new user for all subsequent operations.
-#   This respects MariaDB's default security and resolves the 'Host not allowed' error.
+# - vDefinitive-4: Corrected MariaDB user creation. Instead of creating the user
+#   for '@localhost' (socket only), it now creates it for '@127.0.0.1' (TCP),
+#   which allows subsequent steps to connect via the custom port. This is the
+#   definitive fix for the 'Host not allowed to connect' error.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -52,7 +52,7 @@ clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
 │   Xtream Codes "Proper Repairs" Installer (Stefan2512 Fork)       │
-│                  (Definitive Version 3)                           │
+│                  (Definitive Version 4)                           │
 └───────────────────────────────────────────────────────────────────┘
 > This script will install the panel using the correct assets from your GitHub fork.
 HEADER
@@ -148,19 +148,15 @@ if ! systemctl is-active --quiet mariadb; then
 fi
 
 log_info "Securing MariaDB and creating users on default port..."
-# On a fresh install, root can connect without a password via the socket
 mysql -u root <<-EOSQL
--- Set root password
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${PASSMYSQL}';
--- Clean up default insecure settings
 DELETE FROM mysql.user WHERE User='';
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
 DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
--- Create panel database and user
 CREATE DATABASE xtream_iptvpro;
-CREATE USER 'user_iptvpro'@'localhost' IDENTIFIED BY '${XPASS}';
-GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost';
+CREATE USER 'user_iptvpro'@'127.0.0.1' IDENTIFIED BY '${XPASS}';
+GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'127.0.0.1';
 FLUSH PRIVILEGES;
 EOSQL
 log_success "MariaDB initial security and user creation complete."
@@ -176,7 +172,7 @@ EOF
 systemctl start mariadb
 log_success "MariaDB is now running on port 7999."
 
-# --- 5. User and Panel Creation (This step is now integrated into step 4 and 6) ---
+# --- 5. User and Database Creation ---
 log_step "User and Database creation step is now complete."
 
 
@@ -206,7 +202,7 @@ log_success "Panel files extracted."
 
 log_info "Importing database..."
 if [ -f "/tmp/database.sql" ]; then
-    # Use the new, more secure user for the import
+    # Use the new user and connect via TCP on the new port
     mysql -u user_iptvpro -p"$XPASS" -h 127.0.0.1 -P 7999 xtream_iptvpro < "/tmp/database.sql"
 else
     log_error "Downloaded database.sql file not found."
@@ -214,7 +210,6 @@ fi
 
 log_info "Updating settings in the database..."
 Padmin=$(perl -e 'print crypt($ARGV[0], "$6$rounds=5000$xtreamcodes")' "$ADMIN_PASS")
-# Use the new, more secure user for updates
 mysql -u user_iptvpro -p"$XPASS" -h 127.0.0.1 -P 7999 xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
 
 log_success "Panel installed and database imported."
