@@ -7,11 +7,10 @@
 # Date: 2025-06-20
 #
 # Logic:
-# - vDefinitive: Final version based on the analysis of the user's start_services.sh.
-#   - Configures MariaDB on port 7999 to match the start script's expectation.
-#   - Installs 'python-is-python3' for backward compatibility with 'python2' calls.
-#   - Ensures 'daemonize' is installed as a dependency.
-# - This version creates the exact environment needed by the panel's scripts.
+# - vDefinitive-3: Corrected MariaDB user logic. The script now creates the
+#   panel user ('user_iptvpro') on the default port first, then switches
+#   to the custom port and uses the new user for all subsequent operations.
+#   This respects MariaDB's default security and resolves the 'Host not allowed' error.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -53,7 +52,7 @@ clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
 │   Xtream Codes "Proper Repairs" Installer (Stefan2512 Fork)       │
-│                  (Definitive Version)                             │
+│                  (Definitive Version 3)                           │
 └───────────────────────────────────────────────────────────────────┘
 > This script will install the panel using the correct assets from your GitHub fork.
 HEADER
@@ -141,44 +140,45 @@ fi
 log_info "Installing MariaDB Server..."
 apt-get install -yqq mariadb-server &>> "$LOGFILE"
 
-log_info "Configuring MariaDB to use port 7999..."
+systemctl start mariadb
+systemctl enable mariadb
+
+if ! systemctl is-active --quiet mariadb; then
+    log_error "MariaDB service could not start."
+fi
+
+log_info "Securing MariaDB and creating users on default port..."
+# On a fresh install, root can connect without a password via the socket
+mysql -u root <<-EOSQL
+-- Set root password
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${PASSMYSQL}';
+-- Clean up default insecure settings
+DELETE FROM mysql.user WHERE User='';
+DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+-- Create panel database and user
+CREATE DATABASE xtream_iptvpro;
+CREATE USER 'user_iptvpro'@'localhost' IDENTIFIED BY '${XPASS}';
+GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost';
+FLUSH PRIVILEGES;
+EOSQL
+log_success "MariaDB initial security and user creation complete."
+
+log_info "Switching MariaDB to port 7999..."
+systemctl stop mariadb
 cat > /etc/mysql/mariadb.conf.d/99-xtreamcodes.cnf <<EOF
 [mysqld]
 port = 7999
 bind-address = 127.0.0.1
 skip-name-resolve
 EOF
+systemctl start mariadb
+log_success "MariaDB is now running on port 7999."
 
-systemctl restart mariadb
-systemctl enable mariadb
+# --- 5. User and Panel Creation (This step is now integrated into step 4 and 6) ---
+log_step "User and Database creation step is now complete."
 
-if ! systemctl is-active --quiet mariadb; then
-    log_error "MariaDB service could not start. Please check the logs."
-fi
-
-log_info "Securing MariaDB installation..."
-# Must connect on port 7999 now to set password
-mysql -u root -P 7999 <<-EOSQL
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${PASSMYSQL}';
-FLUSH PRIVILEGES;
-EOSQL
-log_success "MariaDB has been installed and secured on port 7999."
-
-# --- 5. User and Database Creation ---
-log_step "Creating system user and database"
-
-if id "$XC_USER" &>/dev/null; then
-    log_info "System user '$XC_USER' already exists."
-else
-    adduser --system --shell /bin/false --group --disabled-login "$XC_USER"
-    log_success "System user '$XC_USER' has been created."
-fi
-
-log_info "Creating 'xtream_iptvpro' database..."
-mysql -u root -p"$PASSMYSQL" -P 7999 -e "CREATE DATABASE xtream_iptvpro;"
-mysql -u root -p"$PASSMYSQL" -P 7999 -e "GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost' IDENTIFIED BY '$XPASS';"
-mysql -u root -p"$PASSMYSQL" -P 7999 -e "FLUSH PRIVILEGES;"
-log_success "Database and user created successfully."
 
 # --- 6. Panel Download and Installation ---
 log_step "Downloading and installing panel files"
@@ -206,14 +206,16 @@ log_success "Panel files extracted."
 
 log_info "Importing database..."
 if [ -f "/tmp/database.sql" ]; then
-    mysql -u root -p"$PASSMYSQL" -P 7999 xtream_iptvpro < "/tmp/database.sql"
+    # Use the new, more secure user for the import
+    mysql -u user_iptvpro -p"$XPASS" -h 127.0.0.1 -P 7999 xtream_iptvpro < "/tmp/database.sql"
 else
     log_error "Downloaded database.sql file not found."
 fi
 
 log_info "Updating settings in the database..."
 Padmin=$(perl -e 'print crypt($ARGV[0], "$6$rounds=5000$xtreamcodes")' "$ADMIN_PASS")
-mysql -u root -p"$PASSMYSQL" -P 7999 xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
+# Use the new, more secure user for updates
+mysql -u user_iptvpro -p"$XPASS" -h 127.0.0.1 -P 7999 xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
 
 log_success "Panel installed and database imported."
 
@@ -243,7 +245,6 @@ chown -R "$XC_USER":"$XC_USER" "$XC_HOME"
 chmod +x "${XC_PANEL_DIR}/start_services.sh"
 chmod -R 0777 "${XC_PANEL_DIR}/crons"
 
-# Add sudoers rule for the xtreamcodes user
 echo "xtreamcodes ALL = (root) NOPASSWD: /sbin/iptables, /usr/bin/chattr, /usr/bin/python, /usr/bin/python3" | sudo tee /etc/sudoers.d/99-xtreamcodes
 
 log_success "Configuration and permissions have been set."
@@ -251,7 +252,6 @@ log_success "Configuration and permissions have been set."
 # --- 8. Final Service Configuration ---
 log_step "Disabling system services and setting up panel auto-start"
 
-# Stop and disable system services that might conflict
 systemctl disable nginx &>/dev/null || true
 systemctl stop nginx &>/dev/null || true
 systemctl disable php7.4-fpm &>/dev/null || true
@@ -264,10 +264,9 @@ log_info "Adding panel to startup (crontab)..."
 
 # --- 9. Starting Panel Services ---
 log_step "Starting panel's self-contained services..."
-# Run as the xtreamcodes user to ensure correct ownership and context
 sudo -u "$XC_USER" bash "${XC_PANEL_DIR}/start_services.sh"
 
-sleep 5 # Allow a moment for services to initialize
+sleep 5
 
 log_success "Panel services started."
 
