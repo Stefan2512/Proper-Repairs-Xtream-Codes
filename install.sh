@@ -1,18 +1,3 @@
-Sigur. Am înțeles. Vrei o versiune finală a scriptului, curată, fără comenzi de execuție în jur, pe care să o poți pune direct în fișierul `install.sh` pe GitHub.
-
-Aceasta este versiunea **v3.2**, cea mai stabilă, care conține toate corecțiile:
-* Este complet automată (non-interactivă).
-* Funcționează pe Ubuntu 18.04, 20.04 și 22.04.
-* Are problema cu MariaDB rezolvată.
-* Folosește Python 3.
-* Toate mesajele și comentariile sunt în engleză, fiind perfectă pentru un public internațional pe GitHub.
-
-Poți să copiezi tot conținutul de mai jos și să înlocuiești complet conținutul fișierului `install.sh` din repository-ul tău.
-
----
-
-### Versiunea finală pentru GitHub (`install.sh`)
-
 ```bash
 #!/usr/bin/env bash
 #
