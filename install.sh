@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# Xtream Codes "Proper Repairs" - Instalator modernizat și sigur v3.0
+# Xtream Codes "Proper Repairs" - Modern and Secure Installer v3.0
 # ==============================================================================
-# Creat de: Gemini AI (pe baza scriptului original de Stefan2512)
-# Data: 2024-05-17
+# Created by: Gemini AI (based on the original script by Stefan2512)
+# Date: 2024-05-17
 #
-# ÎMBUNĂTĂȚIRI CHEIE:
-# - Complet rescris pentru a fi sigur, robust și compatibil cu Ubuntu 18/20/22.
-# - Cere confirmare explicită înainte de a șterge baze de date existente.
-# - Folosește Python 3 (standard pe Ubuntu modern), eliminând eroarea de compatibilitate.
-# - Descarcă arhiva direct din pagina de "Releases" a proiectului.
-# - Verificări stricte pentru fiecare pas și gestionare îmbunătățită a erorilor.
-# - Securitate sporită (permisiuni limitate pentru userul DB).
+# KEY IMPROVEMENTS:
+# - Completely rewritten to be safe, robust, and compatible with Ubuntu 18/20/22.
+# - Explicit confirmation required before deleting existing databases.
+# - Uses Python 3 (standard on modern Ubuntu), eliminating compatibility issues.
+# - Downloads archive directly from the project's "Releases" page.
+# - Strict checks at each step and improved error handling.
+# - Increased security (limited DB user permissions).
 # ==============================================================================
 
-# Oprește scriptul la orice eroare pentru a preveni instalări incomplete
+# Stop script on any error to prevent incomplete installations
 set -euo pipefail
 
-# --- Variabile și Constante ---
+# --- Variables and Constants ---
 readonly RELEASE_URL="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/main_panel.zip"
 readonly PANEL_ZIP_NAME="main_panel.zip"
 readonly XC_USER="xtreamcodes"
@@ -26,51 +26,51 @@ readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
 readonly LOG_DIR="/var/log/xtreamcodes"
 
-# --- Funcții de Logging ---
-# Asigură crearea directorului de log la început
+# --- Logging Functions ---
+# Ensure log directory is created at the start
 mkdir -p "$LOG_DIR"
 readonly LOGFILE="$LOG_DIR/install_$(date +%Y-%m-%d_%H-%M-%S).log"
 touch "$LOGFILE"
 
 log() { local level=$1; shift; local message="$@"; printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$message" | tee -a "$LOGFILE"; }
-log_step() { echo; log "PAS" "================= $1 ================="; }
+log_step() { echo; log "STEP" "================= $1 ================="; }
 log_info() { log "INFO" "$1"; }
-log_success() { log "SUCCES" "✅ $1"; }
-log_error() { log "EROARE" "❌ $1"; exit 1; }
-log_warning() { log "AVERTISMENT" "⚠️ $1"; }
+log_success() { log "SUCCESS" "✅ $1"; }
+log_error() { log "ERROR" "❌ $1"; exit 1; }
+log_warning() { log "WARNING" "⚠️ $1"; }
 
-# --- Funcția de Curățare la Ieșire ---
+# --- Exit Cleanup Function ---
 trap cleanup EXIT
 cleanup() {
   rm -f "/tmp/${PANEL_ZIP_NAME}"
-  log_info "Fișierele temporare au fost șterse."
+  log_info "Temporary files have been deleted."
 }
 
 # ==============================================================================
-# STARTUL SCRIPTULUI
+# SCRIPT START
 # ==============================================================================
 
 clear
 cat << "EOF"
 ┌───────────────────────────────────────────────────────────────────┐
-│  Instalator modernizat și sigur pentru Xtream Codes "Proper Repairs"  │
-│                           Versiunea 3.0                           │
+│  Modern and Secure Installer for Xtream Codes "Proper Repairs"   │
+│                           Version 3.0                            │
 └───────────────────────────────────────────────────────────────────┘
-> Acest script va instala și configura panoul Xtream Codes, MariaDB,
-> Nginx și PHP pe serverul dumneavoastră.
-> Repository original: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
+> This script will install and configure Xtream Codes panel, MariaDB,
+> Nginx, and PHP on your server.
+> Original repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
 EOF
 echo
 
-# --- 1. Verificări Inițiale ---
-log_step "Verificări inițiale de sistem"
+# --- 1. Initial Checks ---
+log_step "Initial system checks"
 
 if [[ $EUID -ne 0 ]]; then
-   log_error "Acest script trebuie rulat cu privilegii de root. Încercați 'sudo ./install.sh'"
+   log_error "This script must be run with root privileges. Try 'sudo ./install.sh'"
 fi
 
 if ! ping -c 1 -W 2 google.com &>/dev/null; then
-    log_warning "Nu am putut detecta o conexiune la internet. Instalarea poate eșua."
+    log_warning "No internet connection detected. Installation may fail."
     sleep 5
 fi
 
@@ -78,115 +78,111 @@ OS_ID=$(grep -oP '(?<=^ID=).+' /etc/os-release | tr -d '"')
 OS_VER=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
 ARCH=$(uname -m)
 
-log_info "Sistem detectat: ${OS_ID^} $OS_VER ($ARCH)"
+log_info "Detected system: ${OS_ID^} $OS_VER ($ARCH)"
 
 if [[ "$OS_ID" != "ubuntu" || ! "$OS_VER" =~ ^(18\.04|20\.04|22\.04)$ || "$ARCH" != "x86_64" ]]; then
-    log_error "Acest script este compatibil doar cu Ubuntu 18.04, 20.04, 22.04 (64-bit)."
+    log_error "This script is only compatible with Ubuntu 18.04, 20.04, 22.04 (64-bit)."
 fi
 
-log_success "Verificările inițiale au trecut."
+log_success "Initial checks passed."
 
-# --- 2. Confirmarea Utilizatorului ---
-log_step "Confirmare instalare"
+# --- 2. User Confirmation ---
+log_step "Installation confirmation"
 cat << "CONFIRM_MSG"
 
-AVERTISMENT IMPORTANT:
-Acest script va instala pachete software și va configura sistemul.
-Dacă detectează o instalare existentă de MySQL sau MariaDB, vă va întreba
-dacă doriți să o ȘTERGEȚI COMPLET pentru a continua.
+IMPORTANT WARNING:
+This script will install software packages and configure the system.
+If an existing installation of MySQL or MariaDB is detected, it will ask
+if you want to COMPLETELY DELETE it to continue.
 
-Asigurați-vă că rulați acest script pe un server nou sau că aveți backup la date!
+Make sure to run this script on a fresh server or back up your data!
 
 CONFIRM_MSG
 
-read -rp "Scrieți 'DA' pentru a continua: " response
-if [[ "${response}" != "DA" ]]; then
-    log_error "Instalare anulată de utilizator."
+read -rp "Type 'YES' to continue: " response
+if [[ "${response}" != "YES" ]]; then
+    log_error "Installation cancelled by user."
 fi
 
-# --- 3. Setarea Variabilelor ---
-log_step "Setarea variabilelor de instalare"
+# --- 3. Set Variables ---
+log_step "Setting installation variables"
 
-# Generează parole sigure
+# Generate secure passwords
 PASSMYSQL=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 XPASS=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
-# Date de autentificare pentru panou
+# Admin credentials
 ADMIN_USER="admin"
-ADMIN_PASS="admin$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)" # Parolă admin mai sigură
+ADMIN_PASS="admin$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)"
 ADMIN_EMAIL="admin@example.com"
 ACCESSPORT=2086
 
-log_info "Variabilele au fost setate."
+log_info "Variables have been set."
 
-# --- 4. Pregătirea Sistemului și Dependențe ---
-log_step "Instalare dependențe de sistem"
+# --- 4. System Preparation and Dependencies ---
+log_step "Installing system dependencies"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
 
-log_info "Instalare pachete de bază..."
+log_info "Installing base packages..."
 apt-get install -yqq curl wget unzip zip software-properties-common apt-transport-https ca-certificates gnupg python3 &>> "$LOGFILE"
-log_success "Pachetele de bază au fost instalate."
+log_success "Base packages installed."
 
-log_info "Instalare PHP..."
-# Pentru Ubuntu 22.04, adăugăm PPA pentru PHP 7.4
+log_info "Installing PHP..."
+# Add PPA for PHP 7.4 on Ubuntu 22.04
 if [[ "$OS_VER" == "22.04" ]]; then
-    log_info "Se adaugă PPA pentru PHP 7.4 pe Ubuntu 22.04..."
+    log_info "Adding PHP 7.4 PPA for Ubuntu 22.04..."
     add-apt-repository -y ppa:ondrej/php &>> "$LOGFILE"
     apt-get update -qq
 fi
 
-# Încercăm să instalăm PHP 7.4, dacă nu reușește, folosim PHP-ul default al sistemului
+# Try installing PHP 7.4
 if apt-get install -yqq php7.4{,-fpm,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"; then
     PHP_VERSION="7.4"
     PHP_SOCK="/run/php/php7.4-fpm.sock"
 else
-    log_warning "PHP 7.4 nu a putut fi instalat. Se încearcă instalarea versiunii de PHP implicite a sistemului..."
+    log_warning "PHP 7.4 could not be installed. Trying system default PHP..."
     apt-get install -yqq php{,-fpm,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"
-    # Detectează versiunea instalată
     PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
     PHP_SOCK="/run/php/php${PHP_VERSION}-fpm.sock"
 fi
-log_success "PHP versiunea $PHP_VERSION a fost instalat."
+log_success "PHP version $PHP_VERSION installed."
 
-log_info "Instalare Nginx și alte librării..."
+log_info "Installing Nginx and other libraries..."
 apt-get install -yqq nginx libzip-dev libonig-dev &>> "$LOGFILE"
-# Fix pentru libzip pe sisteme mai noi
 if [ ! -f "/usr/lib/x86_64-linux-gnu/libzip.so.4" ] && [ -f "/usr/lib/x86_64-linux-gnu/libzip.so.5" ]; then
     ln -s /usr/lib/x86_64-linux-gnu/libzip.so.5 /usr/lib/x86_64-linux-gnu/libzip.so.4
-    log_info "Creat symlink pentru compatibilitatea libzip."
+    log_info "Created symlink for libzip compatibility."
 fi
 ldconfig
-log_success "Dependențele au fost instalate."
+log_success "Dependencies installed."
 
-# --- 5. Instalare și Configurare MariaDB ---
-log_step "Instalare și configurare MariaDB"
+# --- 5. MariaDB Installation and Config ---
+log_step "MariaDB installation and configuration"
 
-# Verificare sigură pentru instalări existente
 if systemctl list-units --type=service --state=active | grep -q 'mysql\|mariadb'; then
-    log_warning "Am detectat un serviciu MySQL/MariaDB activ."
-    read -rp "Pentru a continua, instalarea existentă va fi ȘTEARSĂ COMPLET. Scrieți 'DA' pentru a confirma: " db_confirm
-    if [[ "$db_confirm" != "DA" ]]; then
-        log_error "Instalare anulată. Baza de date existentă nu a fost atinsă."
+    log_warning "An active MySQL/MariaDB service was detected."
+    read -rp "To proceed, the existing installation will be COMPLETELY REMOVED. Type 'YES' to confirm: " db_confirm
+    if [[ "$db_confirm" != "YES" ]]; then
+        log_error "Installation aborted. Existing DB was not touched."
     fi
-    
-    log_info "Se oprește și se șterge instalarea existentă de MySQL/MariaDB..."
+
+    log_info "Stopping and removing MySQL/MariaDB..."
     systemctl stop mariadb mysql || true
     systemctl disable mariadb mysql || true
     apt-get -y purge 'mysql-.*' 'mariadb-.*' &>> "$LOGFILE"
     apt-get -y autoremove &>> "$LOGFILE"
     apt-get -y autoclean &>> "$LOGFILE"
     rm -rf /etc/mysql /var/lib/mysql /var/log/mysql
-    log_success "Curățarea a fost finalizată."
+    log_success "Clean-up completed."
 fi
 
-log_info "Instalare MariaDB Server..."
+log_info "Installing MariaDB Server..."
 debconf-set-selections <<< "mariadb-server mysql-server/root_password password $PASSMYSQL"
 debconf-set-selections <<< "mariadb-server mysql-server/root_password_again password $PASSMYSQL"
 apt-get install -yqq mariadb-server &>> "$LOGFILE"
 
-# Configurare bazică și sigură
 cat > /etc/mysql/mariadb.conf.d/99-xtreamcodes.cnf <<EOF
 [mysqld]
 bind-address = 127.0.0.1
@@ -197,73 +193,70 @@ systemctl restart mariadb
 systemctl enable mariadb
 
 if ! systemctl is-active --quiet mariadb; then
-    log_error "Serviciul MariaDB nu a putut porni. Verificați logurile."
+    log_error "MariaDB service failed to start. Check logs."
 fi
 
-log_info "Securizarea instalării MariaDB..."
+log_info "Securing MariaDB..."
 mysql -u root -p"$PASSMYSQL" -e "UPDATE mysql.user SET Password=PASSWORD('$PASSMYSQL') WHERE User='root';"
 mysql -u root -p"$PASSMYSQL" -e "DELETE FROM mysql.user WHERE User='';"
 mysql -u root -p"$PASSMYSQL" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
 mysql -u root -p"$PASSMYSQL" -e "DROP DATABASE IF EXISTS test;"
 mysql -u root -p"$PASSMYSQL" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
 mysql -u root -p"$PASSMYSQL" -e "FLUSH PRIVILEGES;"
-log_success "MariaDB a fost instalat și securizat."
+log_success "MariaDB installed and secured."
 
-# --- 6. Creare User și Bază de Date ---
-log_step "Creare utilizator de sistem și bază de date"
+# --- 6. Create User and Database ---
+log_step "Creating system user and database"
 
 if id "$XC_USER" &>/dev/null; then
-    log_info "Utilizatorul de sistem '$XC_USER' există deja."
+    log_info "System user '$XC_USER' already exists."
 else
     adduser --system --shell /bin/false --group --disabled-login "$XC_USER"
-    log_success "Utilizatorul de sistem '$XC_USER' a fost creat."
+    log_success "System user '$XC_USER' has been created."
 fi
 
-log_info "Se creează baza de date 'xtream_iptvpro'..."
+log_info "Creating database 'xtream_iptvpro'..."
 mysql -u root -p"$PASSMYSQL" -e "CREATE DATABASE xtream_iptvpro;"
-# Permisiuni sigure: doar pe baza de date necesară
 mysql -u root -p"$PASSMYSQL" -e "GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost' IDENTIFIED BY '$XPASS';"
 mysql -u root -p"$PASSMYSQL" -e "FLUSH PRIVILEGES;"
-log_success "Baza de date și utilizatorul au fost create cu succes."
+log_success "Database and user created successfully."
 
-# --- 7. Descărcare și Instalare Panou ---
-log_step "Descărcare și instalare fișiere panou"
+# --- 7. Download and Install Panel ---
+log_step "Downloading and installing panel files"
 
-log_info "Se descarcă arhiva panoului de pe GitHub Releases..."
+log_info "Downloading panel archive from GitHub Releases..."
 wget -q -O "/tmp/${PANEL_ZIP_NAME}" "$RELEASE_URL"
 if [[ $? -ne 0 ]]; then
-    log_error "Descărcarea arhivei panoului a eșuat. Verificați URL-ul și conexiunea la internet."
+    log_error "Panel archive download failed. Check the URL and internet connection."
 fi
 
 mkdir -p "$XC_PANEL_DIR"
-log_info "Se dezarhivează panoul în $XC_PANEL_DIR..."
+log_info "Extracting panel to $XC_PANEL_DIR..."
 unzip -o -q "/tmp/${PANEL_ZIP_NAME}" -d "$XC_PANEL_DIR"
 
-# Mută fișierele din subdirectorul `main_panel` în rădăcina directorului de instalare
 if [ -d "${XC_PANEL_DIR}/main_panel" ]; then
     mv ${XC_PANEL_DIR}/main_panel/* ${XC_PANEL_DIR}/
     rm -rf "${XC_PANEL_DIR}/main_panel"
 fi
 
-log_info "Se importă baza de date din fișierul SQL..."
+log_info "Importing database from SQL file..."
 if [ -f "${XC_PANEL_DIR}/SQL/database.sql" ]; then
     mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "${XC_PANEL_DIR}/SQL/database.sql"
 else
-    log_error "Fișierul database.sql nu a fost găsit în arhiva descărcată."
+    log_error "database.sql file not found in downloaded archive."
 fi
 
-# Actualizează datele în baza de date
-log_info "Se actualizează setările în baza de date..."
+log_info "Updating settings in the database..."
 Padmin=$(perl -e 'print crypt($ARGV[0], "$6$rounds=5000$xtreamcodes")' "$ADMIN_PASS")
 mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
 mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE streaming_servers SET server_ip='127.0.0.1' WHERE id=1;"
 
-log_success "Panoul a fost instalat și baza de date importată."
+log_success "Panel installed and database imported."
 
-# --- 8. Generare Configurație și Setare Permisiuni ---
-log_step "Generare fișier de configurare și setare permisiuni"
+# --- 8. Generate Configuration and Set Permissions ---
+log_step "Generating config file and setting permissions"
 
-log_info "Se generează fișierul de configurare config (compatibil Python 3)..."
+log_info "Generating config file (Python 3 compatible)..."
 python3 -c "
 import base64
 from itertools import cycle
@@ -278,19 +271,18 @@ with open('${XC_PANEL_DIR}/config', 'w') as f:
     f.write(encoded)
 "
 if [[ ! -f "${XC_PANEL_DIR}/config" ]]; then
-    log_error "Generarea fișierului config a eșuat."
+    log_error "Config file generation failed."
 fi
 
-log_info "Se setează permisiunile corecte pentru fișiere..."
+log_info "Setting correct permissions for files..."
 chown -R "$XC_USER":"$XC_USER" "$XC_HOME"
 chmod -R 777 "${XC_PANEL_DIR}/streams" "${XC_PANEL_DIR}/tmp" "${XC_PANEL_DIR}/logs"
 
-log_success "Configurația și permisiunile au fost setate."
+log_success "Configuration and permissions set."
 
-# --- 9. Configurare Servicii (PHP-FPM & Nginx) ---
-log_step "Configurare PHP-FPM și Nginx"
+# --- 9. Configure Services (PHP-FPM & Nginx) ---
+log_step "Configuring PHP-FPM and Nginx"
 
-# Configurare PHP-FPM Pool
 cat > "/etc/php/${PHP_VERSION}/fpm/pool.d/xtreamcodes.conf" <<EOF
 [${XC_USER}]
 user = ${XC_USER}
@@ -307,7 +299,6 @@ pm.max_spare_servers = 15
 chdir = /
 EOF
 
-# Configurare Nginx
 cat > /etc/nginx/sites-available/xtreamcodes.conf <<EOF
 server {
     listen $ACCESSPORT default_server;
@@ -326,50 +317,46 @@ server {
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
     }
 
-    # Blochează accesul la fișierele sensibile
     location ~ /\.ht {
         deny all;
     }
 }
 EOF
 
-# Activare site Nginx
 ln -s -f /etc/nginx/sites-available/xtreamcodes.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
-# Verifică configurația Nginx înainte de a reporni
 if ! nginx -t; then
-    log_error "Configurația Nginx este invalidă. Vă rugăm verificați fișierul /etc/nginx/sites-available/xtreamcodes.conf"
+    log_error "Nginx configuration is invalid. Please check /etc/nginx/sites-available/xtreamcodes.conf"
 fi
 
-log_info "Se repornesc serviciile..."
+log_info "Restarting services..."
 systemctl restart "php${PHP_VERSION}-fpm"
 systemctl enable "php${PHP_VERSION}-fpm"
 systemctl restart nginx
 systemctl enable nginx
 
-log_success "PHP-FPM și Nginx au fost configurate și repornite."
+log_success "PHP-FPM and Nginx configured and restarted."
 
-# --- 10. Finalizare ---
-log_step "Instalare finalizată!"
+# --- 10. Finalization ---
+log_step "Installation complete!"
 
-# Afișează adresa IP a serverului
 IP_ADDR=$(hostname -I | awk '{print $1}')
 
 cat << FINAL_MSG
 
-Felicitări! Panoul Xtream Codes a fost instalat cu succes.
+Congratulations! Xtream Codes panel has been successfully installed.
 
-Puteți accesa panoul de administrare la adresa:
+You can access the admin panel at:
 URL: http://${IP_ADDR}:${ACCESSPORT}
 
-Date de autentificare:
-Utilizator: ${ADMIN_USER}
-Parola:     ${ADMIN_PASS}
+Login credentials:
+User:     ${ADMIN_USER}
+Password: ${ADMIN_PASS}
 
-AVERTISMENT DE SECURITATE:
-- Salvați această parolă într-un loc sigur.
-- Se recomandă să ștergeți istoricul comenzilor ('history -c') pentru a elimina urmele parolelor.
+SECURITY WARNING:
+- Save this password in a safe place.
+- It's recommended to clear your shell history using 'history -c' to remove password traces.
 
 FINAL_MSG
 
