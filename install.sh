@@ -1,37 +1,31 @@
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# Xtream Codes "Proper Repairs" - Modernized & Non-Interactive Installer v3.2
+# Xtream Codes "Proper Repairs" - Final Installer v6.0 (Stefan2512 Fork)
 # ==============================================================================
-# Created by: Gemini AI (based on the original script by Stefan2512)
+# Created by: Gemini AI
 # Date: 2025-06-20
 #
-# This script provides a fully automated, non-interactive installation
-# of the Xtream Codes panel on modern Ubuntu systems.
-#
-# KEY IMPROVEMENTS:
-# - v3.2: Fixed MariaDB password set command for compatibility with modern versions.
-#         Fixed typo in php-fpm service name.
-# - Fully non-interactive for automated deployments.
-# - Uses Python 3 (standard on modern Ubuntu), eliminating compatibility errors.
-# - Downloads the archive directly from the project's "Releases" page.
-# - Enhanced security (scoped DB user permissions).
-# - Robust error handling and logging.
+# Logic:
+# - v6.0: Final version using the correct asset names as specified by the user:
+#         'xtreamcodes_enhanced_Ubuntu_22.04.tar.gz' and 'database.sql'.
+# - All logic is self-contained and uses assets EXCLUSIVELY from the Stefan2512 repo.
+# - Contains all previous fixes for MariaDB, Python 3, and non-interactive setup.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
 set -euo pipefail
 
 # --- Variables and Constants ---
-readonly RELEASE_URL="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/main_panel.zip"
-readonly PANEL_ZIP_NAME="main_panel.zip"
+readonly RELEASE_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0"
+readonly PANEL_ARCHIVE_URL="${RELEASE_URL_PREFIX}/xtreamcodes_enhanced_Ubuntu_22.04.tar.gz"
+readonly DATABASE_SQL_URL="${RELEASE_URL_PREFIX}/database.sql"
 readonly XC_USER="xtreamcodes"
 readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
 readonly LOG_DIR="/var/log/xtreamcodes"
 
 # --- Logging Functions ---
-# Ensure log directory exists from the start
 mkdir -p "$LOG_DIR"
 readonly LOGFILE="$LOG_DIR/install_$(date +%Y-%m-%d_%H-%M-%S).log"
 touch "$LOGFILE"
@@ -46,7 +40,7 @@ log_warning() { log "WARNING" "⚠️ $1"; }
 # --- Cleanup Function on Exit ---
 trap cleanup EXIT
 cleanup() {
-  rm -f "/tmp/${PANEL_ZIP_NAME}"
+  rm -f "/tmp/panel.tar.gz" "/tmp/database.sql"
   log_info "Temporary files have been deleted."
 }
 
@@ -57,13 +51,10 @@ cleanup() {
 clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
-│   Modern & Secure Installer for Xtream Codes "Proper Repairs"     │
-│                           Version 3.2                             │
+│   Xtream Codes "Proper Repairs" Installer v6.0 (Stefan2512 Fork)  │
 │                  (Fully Automatic / Non-Interactive)              │
 └───────────────────────────────────────────────────────────────────┘
-> This script will install and configure the Xtream Codes panel, MariaDB,
-> Nginx, and PHP on your server.
-> Original repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
+> This script will install the panel using assets from your GitHub fork.
 HEADER
 echo
 log_warning "This is a non-interactive script. Installation will proceed automatically."
@@ -113,7 +104,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
 log_info "Installing base packages..."
-apt-get install -yqq curl wget unzip zip software-properties-common apt-transport-https ca-certificates gnupg python3 &>> "$LOGFILE"
+apt-get install -yqq curl wget unzip zip tar software-properties-common apt-transport-https ca-certificates gnupg python3 perl &>> "$LOGFILE"
 log_success "Base packages installed."
 
 log_info "Installing PHP..."
@@ -178,7 +169,6 @@ if ! systemctl is-active --quiet mariadb; then
 fi
 
 log_info "Securing MariaDB installation..."
-# Use modern, compatible SQL commands
 mysql -u root -p"$PASSMYSQL" <<-EOSQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${PASSMYSQL}';
 DELETE FROM mysql.user WHERE User='';
@@ -208,26 +198,31 @@ log_success "Database and user created successfully."
 # --- 6. Panel Download and Installation ---
 log_step "Downloading and installing panel files"
 
-log_info "Downloading panel archive from GitHub Releases..."
-wget -q -O "/tmp/${PANEL_ZIP_NAME}" "$RELEASE_URL"
-if [[ $? -ne 0 ]]; then
-    log_error "Panel archive download failed. Check the URL and your internet connection."
-fi
-
 mkdir -p "$XC_PANEL_DIR"
-log_info "Unzipping panel to $XC_PANEL_DIR..."
-unzip -o -q "/tmp/${PANEL_ZIP_NAME}" -d "$XC_PANEL_DIR"
 
-if [ -d "${XC_PANEL_DIR}/main_panel" ]; then
-    mv ${XC_PANEL_DIR}/main_panel/* ${XC_PANEL_DIR}/
-    rm -rf "${XC_PANEL_DIR}/main_panel"
+log_info "Downloading panel archive (xtreamcodes_enhanced_Ubuntu_22.04.tar.gz)..."
+wget -q -O "/tmp/panel.tar.gz" "$PANEL_ARCHIVE_URL"
+log_success "Panel archive downloaded."
+
+log_info "Downloading database.sql..."
+wget -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
+log_success "Database SQL file downloaded."
+
+log_info "Extracting panel files into $XC_PANEL_DIR..."
+# Extract the archive, stripping the top-level directory
+tar -xzf "/tmp/panel.tar.gz" -C "$XC_PANEL_DIR" --strip-components=1
+
+# Verification to ensure extraction was successful
+if [ ! -d "${XC_PANEL_DIR}/admin" ]; then
+    log_error "Extraction failed. The 'admin' directory was not found in $XC_PANEL_DIR."
 fi
+log_success "Panel files extracted."
 
-log_info "Importing database from SQL file..."
-if [ -f "${XC_PANEL_DIR}/SQL/database.sql" ]; then
-    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "${XC_PANEL_DIR}/SQL/database.sql"
+log_info "Importing database..."
+if [ -f "/tmp/database.sql" ]; then
+    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "/tmp/database.sql"
 else
-    log_error "database.sql file not found in the downloaded archive."
+    log_error "Downloaded database.sql file not found."
 fi
 
 log_info "Updating settings in the database..."
