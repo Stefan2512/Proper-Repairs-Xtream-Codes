@@ -1,356 +1,376 @@
 #!/usr/bin/env bash
-# XtreamCodes Enhanced Installer v2.0 - Stefan Edition with MariaDB VM Fix
-# =============================================
-# Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
-# Version: 2.0 - Fixed for VM installations with proper MariaDB handling
+#
+# ==============================================================================
+# Xtream Codes "Proper Repairs" - Instalator modernizat și sigur v3.0
+# ==============================================================================
+# Creat de: Gemini AI (pe baza scriptului original de Stefan2512)
+# Data: 2024-05-17
+#
+# ÎMBUNĂTĂȚIRI CHEIE:
+# - Complet rescris pentru a fi sigur, robust și compatibil cu Ubuntu 18/20/22.
+# - Cere confirmare explicită înainte de a șterge baze de date existente.
+# - Folosește Python 3 (standard pe Ubuntu modern), eliminând eroarea de compatibilitate.
+# - Descarcă arhiva direct din pagina de "Releases" a proiectului.
+# - Verificări stricte pentru fiecare pas și gestionare îmbunătățită a erorilor.
+# - Securitate sporită (permisiuni limitate pentru userul DB).
+# ==============================================================================
 
-set +e
+# Oprește scriptul la orice eroare pentru a preveni instalări incomplete
+set -euo pipefail
 
-LOG_DIR="/var/log/xtreamcodes"
-mkdir -p "$LOG_DIR" 2>/dev/null
-logfile="$LOG_DIR/$(date +%Y-%m-%d_%H.%M.%S)_install.log"
-touch "$logfile" 2>/dev/null
+# --- Variabile și Constante ---
+readonly RELEASE_URL="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/main_panel.zip"
+readonly PANEL_ZIP_NAME="main_panel.zip"
+readonly XC_USER="xtreamcodes"
+readonly XC_HOME="/home/${XC_USER}"
+readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
+readonly LOG_DIR="/var/log/xtreamcodes"
 
-log() { local level=$1; shift; local message="$@"; echo "[$(date '+%Y-%m-%d %H:%M:%S')] $level: $message" | tee -a "$logfile"; }
-log_step() { echo "🔧 $1"; log "STEP" "$1"; }
-log_info() { echo "ℹ️  $1"; log "INFO" "$1"; }
-log_success() { echo "✅ $1"; log "SUCCESS" "$1"; }
-log_error() { echo "❌ $1"; log "ERROR" "$1"; }
-log_warning() { echo "⚠️  $1"; log "WARNING" "$1"; }
+# --- Funcții de Logging ---
+# Asigură crearea directorului de log la început
+mkdir -p "$LOG_DIR"
+readonly LOGFILE="$LOG_DIR/install_$(date +%Y-%m-%d_%H-%M-%S).log"
+touch "$LOGFILE"
 
-tz=""; adminL=""; adminP=""; ACCESPORT=""; CLIENTACCESPORT=""; APACHEACCESPORT=""; EMAIL=""; PASSMYSQL=""; silent="no"
+log() { local level=$1; shift; local message="$@"; printf "[%s] %s: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$message" | tee -a "$LOGFILE"; }
+log_step() { echo; log "PAS" "================= $1 ================="; }
+log_info() { log "INFO" "$1"; }
+log_success() { log "SUCCES" "✅ $1"; }
+log_error() { log "EROARE" "❌ $1"; exit 1; }
+log_warning() { log "AVERTISMENT" "⚠️ $1"; }
 
-while getopts ":t:a:p:o:c:r:e:m:s:h" option 2>/dev/null; do
-    case "${option}" in
-        t) tz=${OPTARG} ;; a) adminL=${OPTARG} ;; p) adminP=${OPTARG} ;;
-        o) ACCESPORT=${OPTARG} ;; c) CLIENTACCESPORT=${OPTARG} ;;
-        r) APACHEACCESPORT=${OPTARG} ;; e) EMAIL=${OPTARG} ;; m) PASSMYSQL=${OPTARG} ;;
-        s) silent="yes" ;;
-        h) echo "XtreamCodes Enhanced Installer v2.0 - Stefan Edition with VM Fix"; exit 0 ;;
-        *) ;;
-    esac
-done
+# --- Funcția de Curățare la Ieșire ---
+trap cleanup EXIT
+cleanup() {
+  rm -f "/tmp/${PANEL_ZIP_NAME}"
+  log_info "Fișierele temporare au fost șterse."
+}
+
+# ==============================================================================
+# STARTUL SCRIPTULUI
+# ==============================================================================
 
 clear
-echo ""
-echo "┌─────────────────────────────────────────────────────────────────────┐"
-echo "│        XtreamCodes Enhanced Installer v2.0 - Stefan Edition        │"
-echo "└─────────────────────────────────────────────────────────────────────┘"
-echo "🚀 Repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
+cat << "EOF"
+┌───────────────────────────────────────────────────────────────────┐
+│  Instalator modernizat și sigur pentru Xtream Codes "Proper Repairs"  │
+│                           Versiunea 3.0                           │
+└───────────────────────────────────────────────────────────────────┘
+> Acest script va instala și configura panoul Xtream Codes, MariaDB,
+> Nginx și PHP pe serverul dumneavoastră.
+> Repository original: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
+EOF
+echo
 
-log_step "Detecting system information"
-OS="Unknown"; VER="Unknown"
-if [ -f /etc/lsb-release ]; then
-    OS=$(grep DISTRIB_ID /etc/lsb-release | sed 's/^.*=//' 2>/dev/null || echo "Unknown")
-    VER=$(grep DISTRIB_RELEASE /etc/lsb-release | sed 's/^.*=//' 2>/dev/null || echo "Unknown")
-elif [ -f /etc/os-release ]; then
-    OS=$(grep -w ID /etc/os-release | sed 's/^.*=//' 2>/dev/null || echo "Unknown")
-    VER=$(grep VERSION_ID /etc/os-release | sed 's/^.*"\(.*\)"/\1/' | head -n 1 2>/dev/null || echo "Unknown")
-fi
-ARCH=$(uname -m 2>/dev/null || echo "Unknown")
-log_info "Detected: $OS $VER $ARCH"
+# --- 1. Verificări Inițiale ---
+log_step "Verificări inițiale de sistem"
 
-if [[ "$OS" = "Ubuntu" && ("$VER" = "18.04" || "$VER" = "20.04" || "$VER" = "22.04") && "$ARCH" == "x86_64" ]]; then
-    log_success "System compatibility check passed"
-else
-    log_error "This installer only supports Ubuntu 18.04/20.04/22.04 x86_64"
-    exit 1
+if [[ $EUID -ne 0 ]]; then
+   log_error "Acest script trebuie rulat cu privilegii de root. Încercați 'sudo ./install.sh'"
 fi
 
-log_step "Checking prerequisites"
-if [ $UID -ne 0 ]; then
-    log_error "This installer must be run as root"
-    exit 1
+if ! ping -c 1 -W 2 google.com &>/dev/null; then
+    log_warning "Nu am putut detecta o conexiune la internet. Instalarea poate eșua."
+    sleep 5
 fi
 
-log_success "Prerequisites check passed"
+OS_ID=$(grep -oP '(?<=^ID=).+' /etc/os-release | tr -d '"')
+OS_VER=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
+ARCH=$(uname -m)
 
-XPASS=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16 || echo "XtreamPass2024")
-zzz=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20 || echo "LiveStreamPass2024")
-eee=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 10 || echo "UniqueId24")
-rrr=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20 || echo "CryptLoadBalance2024")
+log_info "Sistem detectat: ${OS_ID^} $OS_VER ($ARCH)"
 
-tz=${tz:-"Europe/Bucharest"}
-adminL=${adminL:-"admin"}
-adminP=${adminP:-"admin123"}
-EMAIL=${EMAIL:-"admin@example.com"}
-PASSMYSQL=${PASSMYSQL:-"mysqlPassWord1da2da3Nu"}
-ACCESPORT=${ACCESPORT:-2086}
-CLIENTACCESPORT=${CLIENTACCESPORT:-8080}
-APACHEACCESPORT=${APACHEACCESPORT:-3672}
+if [[ "$OS_ID" != "ubuntu" || ! "$OS_VER" =~ ^(18\.04|20\.04|22\.04)$ || "$ARCH" != "x86_64" ]]; then
+    log_error "Acest script este compatibil doar cu Ubuntu 18.04, 20.04, 22.04 (64-bit)."
+fi
 
+log_success "Verificările inițiale au trecut."
+
+# --- 2. Confirmarea Utilizatorului ---
+log_step "Confirmare instalare"
+cat << "CONFIRM_MSG"
+
+AVERTISMENT IMPORTANT:
+Acest script va instala pachete software și va configura sistemul.
+Dacă detectează o instalare existentă de MySQL sau MariaDB, vă va întreba
+dacă doriți să o ȘTERGEȚI COMPLET pentru a continua.
+
+Asigurați-vă că rulați acest script pe un server nou sau că aveți backup la date!
+
+CONFIRM_MSG
+
+read -rp "Scrieți 'DA' pentru a continua: " response
+if [[ "${response}" != "DA" ]]; then
+    log_error "Instalare anulată de utilizator."
+fi
+
+# --- 3. Setarea Variabilelor ---
+log_step "Setarea variabilelor de instalare"
+
+# Generează parole sigure
+PASSMYSQL=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+XPASS=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+
+# Date de autentificare pentru panou
+ADMIN_USER="admin"
+ADMIN_PASS="admin$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)" # Parolă admin mai sigură
+ADMIN_EMAIL="admin@example.com"
+ACCESSPORT=2086
+
+log_info "Variabilele au fost setate."
+
+# --- 4. Pregătirea Sistemului și Dependențe ---
+log_step "Instalare dependențe de sistem"
 export DEBIAN_FRONTEND=noninteractive
-log_step "Preparing system for installation"
-apt-get update -qq 2>/dev/null
-log_success "System prepared"
 
-log_step "Installing system dependencies"
-apt-get -y install \
-    curl wget unzip zip software-properties-common \
-    net-tools daemonize perl cron sudo lsb-release \
-    apt-transport-https ca-certificates gnupg \
-    >>"$logfile" 2>>"$logfile"
-log_success "Dependencies installed successfully"
-log_step "Installing PHP and other dependencies..."
+apt-get update -qq
 
-if [ "$VER" = "22.04" ]; then
-    log_info "Ubuntu 22.04 detected. Adding PHP 7.4 repository..."
-    apt install software-properties-common -y >>"$logfile" 2>>"$logfile"
-    add-apt-repository -y ppa:ondrej/php >>"$logfile" 2>>"$logfile"
-    apt-get update -qq >>"$logfile" 2>>"$logfile"
+log_info "Instalare pachete de bază..."
+apt-get install -yqq curl wget unzip zip software-properties-common apt-transport-https ca-certificates gnupg python3 &>> "$LOGFILE"
+log_success "Pachetele de bază au fost instalate."
+
+log_info "Instalare PHP..."
+# Pentru Ubuntu 22.04, adăugăm PPA pentru PHP 7.4
+if [[ "$OS_VER" == "22.04" ]]; then
+    log_info "Se adaugă PPA pentru PHP 7.4 pe Ubuntu 22.04..."
+    add-apt-repository -y ppa:ondrej/php &>> "$LOGFILE"
+    apt-get update -qq
 fi
 
-log_info "Installing PHP 7.4 packages..."
-apt-get -y install \
-    php7.4 php7.4-fpm php7.4-cli \
-    php7.4-mysql php7.4-curl php7.4-gd \
-    php7.4-json php7.4-zip php7.4-xml \
-    php7.4-mbstring php7.4-soap php7.4-intl \
-    php7.4-bcmath php7.4-opcache >>"$logfile" 2>>"$logfile"
-
-if ! php7.4 -v >/dev/null 2>&1; then
-    log_warning "PHP 7.4 not available. Falling back to PHP 8.1..."
-    apt-get -y install \
-        php php-fpm php-cli \
-        php-mysql php-curl php-gd \
-        php-json php-zip php-xml \
-        php-mbstring php-soap php-intl \
-        php-bcmath php-opcache >>"$logfile" 2>>"$logfile"
-
-    PHP_VERSION="8.1"
-    PHP_SOCK="/run/php/php8.1-fpm.sock"
-else
+# Încercăm să instalăm PHP 7.4, dacă nu reușește, folosim PHP-ul default al sistemului
+if apt-get install -yqq php7.4{,-fpm,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"; then
     PHP_VERSION="7.4"
-    PHP_SOCK="/run/php/php7.4-fpm-xtreamcodes.sock"
+    PHP_SOCK="/run/php/php7.4-fpm.sock"
+else
+    log_warning "PHP 7.4 nu a putut fi instalat. Se încearcă instalarea versiunii de PHP implicite a sistemului..."
+    apt-get install -yqq php{,-fpm,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath} &>> "$LOGFILE"
+    # Detectează versiunea instalată
+    PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
+    PHP_SOCK="/run/php/php${PHP_VERSION}-fpm.sock"
 fi
+log_success "PHP versiunea $PHP_VERSION a fost instalat."
 
-log_success "PHP version in use: $PHP_VERSION"
-
-log_info "Installing Nginx..."
-apt-get -y install nginx nginx-core nginx-common >>"$logfile" 2>>"$logfile"
-
-log_info "Installing required system libraries..."
-apt-get -y install \
-    libzip-dev libonig-dev libsodium-dev libargon2-dev \
-    libbz2-dev libpng-dev libxml2-dev libssl-dev \
-    libcurl4-openssl-dev libxslt1-dev libmaxminddb-dev libaio-dev python2 \
-    >>"$logfile" 2>>"$logfile"
-
+log_info "Instalare Nginx și alte librării..."
+apt-get install -yqq nginx libzip-dev libonig-dev &>> "$LOGFILE"
+# Fix pentru libzip pe sisteme mai noi
 if [ ! -f "/usr/lib/x86_64-linux-gnu/libzip.so.4" ] && [ -f "/usr/lib/x86_64-linux-gnu/libzip.so.5" ]; then
-    ln -sf /usr/lib/x86_64-linux-gnu/libzip.so.5 /usr/lib/x86_64-linux-gnu/libzip.so.4
+    ln -s /usr/lib/x86_64-linux-gnu/libzip.so.5 /usr/lib/x86_64-linux-gnu/libzip.so.4
+    log_info "Creat symlink pentru compatibilitatea libzip."
 fi
 ldconfig
-log_success "All PHP and system dependencies installed"
-log_step "Creating XtreamCodes system user"
-if id "xtreamcodes" &>/dev/null; then
-    log_info "User 'xtreamcodes' already exists"
-else
-    adduser --system --shell /bin/false --group --disabled-login xtreamcodes >/dev/null 2>&1
-    log_success "User 'xtreamcodes' created"
+log_success "Dependențele au fost instalate."
+
+# --- 5. Instalare și Configurare MariaDB ---
+log_step "Instalare și configurare MariaDB"
+
+# Verificare sigură pentru instalări existente
+if systemctl list-units --type=service --state=active | grep -q 'mysql\|mariadb'; then
+    log_warning "Am detectat un serviciu MySQL/MariaDB activ."
+    read -rp "Pentru a continua, instalarea existentă va fi ȘTEARSĂ COMPLET. Scrieți 'DA' pentru a confirma: " db_confirm
+    if [[ "$db_confirm" != "DA" ]]; then
+        log_error "Instalare anulată. Baza de date existentă nu a fost atinsă."
+    fi
+    
+    log_info "Se oprește și se șterge instalarea existentă de MySQL/MariaDB..."
+    systemctl stop mariadb mysql || true
+    systemctl disable mariadb mysql || true
+    apt-get -y purge 'mysql-.*' 'mariadb-.*' &>> "$LOGFILE"
+    apt-get -y autoremove &>> "$LOGFILE"
+    apt-get -y autoclean &>> "$LOGFILE"
+    rm -rf /etc/mysql /var/lib/mysql /var/log/mysql
+    log_success "Curățarea a fost finalizată."
 fi
 
-log_step "Installing and configuring MariaDB"
+log_info "Instalare MariaDB Server..."
+debconf-set-selections <<< "mariadb-server mysql-server/root_password password $PASSMYSQL"
+debconf-set-selections <<< "mariadb-server mysql-server/root_password_again password $PASSMYSQL"
+apt-get install -yqq mariadb-server &>> "$LOGFILE"
 
-systemctl stop mysql 2>/dev/null || true
-systemctl stop mariadb 2>/dev/null || true
-killall -9 mysqld 2>/dev/null || true
-killall -9 mariadbd 2>/dev/null || true
-sleep 2
-
-apt-get -y purge mysql* mariadb* >>"$logfile" 2>>"$logfile" || true
-apt-get -y autoremove >>"$logfile" 2>>"$logfile" || true
-apt-get -y autoclean >>"$logfile" 2>>"$logfile" || true
-
-rm -rf /etc/mysql /etc/mariadb /var/lib/mysql /var/lib/mariadb /var/log/mysql /var/log/mariadb /run/mysqld /run/mariadb
-rm -f /root/.my.cnf /home/*/.my.cnf
-
-log_success "MySQL/MariaDB cleanup completed"
-
-log_info "Installing MariaDB packages..."
-mkdir -p /etc/mysql/mariadb.conf.d /var/lib/mysql /var/log/mysql /run/mysqld
-chown mysql:mysql /var/lib/mysql /var/log/mysql /run/mysqld
-
-debconf-set-selections <<< "mariadb-server-10.6 mysql-server/root_password password $PASSMYSQL"
-debconf-set-selections <<< "mariadb-server-10.6 mysql-server/root_password_again password $PASSMYSQL"
-
-apt-get -y install mariadb-server mariadb-client mariadb-common >>"$logfile" 2>>"$logfile"
-
-cat > /etc/mysql/mariadb.cnf <<EOF
+# Configurare bazică și sigură
+cat > /etc/mysql/mariadb.conf.d/99-xtreamcodes.cnf <<EOF
 [mysqld]
-user = mysql
-port = 7999
-basedir = /usr
-datadir = /var/lib/mysql
-tmpdir = /tmp
 bind-address = 127.0.0.1
-skip-external-locking
 skip-name-resolve
 EOF
 
-if [ ! -d "/var/lib/mysql/mysql" ]; then
-    mysql_install_db --user=mysql --datadir=/var/lib/mysql >>"$logfile" 2>>"$logfile"
+systemctl restart mariadb
+systemctl enable mariadb
+
+if ! systemctl is-active --quiet mariadb; then
+    log_error "Serviciul MariaDB nu a putut porni. Verificați logurile."
 fi
 
-systemctl enable mariadb >>"$logfile" 2>>"$logfile"
-systemctl start mariadb 2>/dev/null || true
-sleep 5
+log_info "Securizarea instalării MariaDB..."
+mysql -u root -p"$PASSMYSQL" -e "UPDATE mysql.user SET Password=PASSWORD('$PASSMYSQL') WHERE User='root';"
+mysql -u root -p"$PASSMYSQL" -e "DELETE FROM mysql.user WHERE User='';"
+mysql -u root -p"$PASSMYSQL" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
+mysql -u root -p"$PASSMYSQL" -e "DROP DATABASE IF EXISTS test;"
+mysql -u root -p"$PASSMYSQL" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+mysql -u root -p"$PASSMYSQL" -e "FLUSH PRIVILEGES;"
+log_success "MariaDB a fost instalat și securizat."
 
-mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$PASSMYSQL'; FLUSH PRIVILEGES;" 2>/dev/null || true
-log_success "MariaDB installed and configured"
+# --- 6. Creare User și Bază de Date ---
+log_step "Creare utilizator de sistem și bază de date"
 
-log_info "Setting up XtreamCodes database..."
-
-mysql -u root -p$PASSMYSQL -e "DROP DATABASE IF EXISTS xtream_iptvpro;" 2>/dev/null || true
-mysql -u root -p$PASSMYSQL -e "CREATE DATABASE xtream_iptvpro;" 2>/dev/null || true
-
-log_info "Downloading database.sql from GitHub..."
-wget -q -O /tmp/database.sql "https://raw.githubusercontent.com/Stefan2512/Proper-Repairs-Xtream-Codes/master/database.sql" || \
-curl -s -o /tmp/database.sql "https://raw.githubusercontent.com/Stefan2512/Proper-Repairs-Xtream-Codes/master/database.sql"
-
-if [ -f "/tmp/database.sql" ] && [ -s "/tmp/database.sql" ]; then
-    mysql -u root -p$PASSMYSQL xtream_iptvpro < /tmp/database.sql
-    log_success "Database imported successfully"
+if id "$XC_USER" &>/dev/null; then
+    log_info "Utilizatorul de sistem '$XC_USER' există deja."
 else
-    log_error "Failed to download database.sql"
-    exit 1
+    adduser --system --shell /bin/false --group --disabled-login "$XC_USER"
+    log_success "Utilizatorul de sistem '$XC_USER' a fost creat."
 fi
 
-mysql -u root -p$PASSMYSQL -e "GRANT ALL PRIVILEGES ON *.* TO 'user_iptvpro'@'%' IDENTIFIED BY '$XPASS' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null || true
+log_info "Se creează baza de date 'xtream_iptvpro'..."
+mysql -u root -p"$PASSMYSQL" -e "CREATE DATABASE xtream_iptvpro;"
+# Permisiuni sigure: doar pe baza de date necesară
+mysql -u root -p"$PASSMYSQL" -e "GRANT ALL PRIVILEGES ON xtream_iptvpro.* TO 'user_iptvpro'@'localhost' IDENTIFIED BY '$XPASS';"
+mysql -u root -p"$PASSMYSQL" -e "FLUSH PRIVILEGES;"
+log_success "Baza de date și utilizatorul au fost create cu succes."
 
-log_info "Creating XtreamCodes directory structure..."
-mkdir -p /home/xtreamcodes/iptv_xtream_codes/{admin,wwwdir,bin,logs,streams,tmp,nginx/{conf,logs},nginx_rtmp/{conf,logs},php,includes}
+# --- 7. Descărcare și Instalare Panou ---
+log_step "Descărcare și instalare fișiere panou"
 
-alg=6
-salt='rounds=20000$xtreamcodes'
-Padmin=$(perl -e 'print crypt($ARGV[1], "\$" . $ARGV[0] . "\$" . $ARGV[2]), "\n";' "$alg" "$adminP" "$salt" 2>/dev/null || echo '$6$rounds=20000$xtreamcodes$defaulthash')
-
-mysql -u root -p$PASSMYSQL xtream_iptvpro -e "INSERT INTO reg_users (id, username, password, email, ip, date_registered, verify_key, verified, member_group_id, status, last_login, exp_date, admin_enabled, admin_notes, reseller_dns, owner_id, override_packages, google_2fa_sec) VALUES (1, '$adminL', '$Padmin', '$EMAIL', '', UNIX_TIMESTAMP(), '', 1, 1, 1, NULL, 4070905200, 1, '', '', 0, '', '');"
-
-mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE streaming_servers SET server_ip='127.0.0.1', ssh_port='22', system_os='$OS $VER', http_broadcast_port=$CLIENTACCESPORT WHERE id=1;"
-mysql -u root -p$PASSMYSQL xtream_iptvpro -e "UPDATE settings SET live_streaming_pass = '$zzz', unique_id = '$eee', crypt_load_balancing = '$rrr' WHERE id = 1;"
-export XPASS
-
-PYTHON_CMD="python2"
-if ! command -v python2 >/dev/null 2>&1; then
-    PYTHON_CMD="python"
+log_info "Se descarcă arhiva panoului de pe GitHub Releases..."
+wget -q -O "/tmp/${PANEL_ZIP_NAME}" "$RELEASE_URL"
+if [[ $? -ne 0 ]]; then
+    log_error "Descărcarea arhivei panoului a eșuat. Verificați URL-ul și conexiunea la internet."
 fi
 
-$PYTHON_CMD << 'END' 2>/dev/null || true
-import os, sys
-from itertools import cycle, izip
+mkdir -p "$XC_PANEL_DIR"
+log_info "Se dezarhivează panoul în $XC_PANEL_DIR..."
+unzip -o -q "/tmp/${PANEL_ZIP_NAME}" -d "$XC_PANEL_DIR"
 
-rHost = "127.0.0.1"
-rPassword = os.environ.get('XPASS', 'defaultpass')
-rServerID = 1
-rUsername = "user_iptvpro"
-rDatabase = "xtream_iptvpro"
-rPort = 7999
+# Mută fișierele din subdirectorul `main_panel` în rădăcina directorului de instalare
+if [ -d "${XC_PANEL_DIR}/main_panel" ]; then
+    mv ${XC_PANEL_DIR}/main_panel/* ${XC_PANEL_DIR}/
+    rm -rf "${XC_PANEL_DIR}/main_panel"
+fi
 
-def encrypt(rHost="127.0.0.1", rUsername="user_iptvpro", rPassword="", rDatabase="xtream_iptvpro", rServerID=1, rPort=7999):
-    rf = open('/home/xtreamcodes/iptv_xtream_codes/config', 'wb')
-    config_data = '{"host":"%s","db_user":"%s","db_pass":"%s","db_name":"%s","server_id":"%d", "db_port":"%d"}' % (rHost, rUsername, rPassword, rDatabase, rServerID, rPort)
-    encrypted = ''.join(chr(ord(c)^ord(k)) for c,k in izip(config_data, cycle('5709650b0d7806074842c6de575025b1')))
-    rf.write(encrypted.encode('base64').replace('\n', ''))
-    rf.close()
+log_info "Se importă baza de date din fișierul SQL..."
+if [ -f "${XC_PANEL_DIR}/SQL/database.sql" ]; then
+    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "${XC_PANEL_DIR}/SQL/database.sql"
+else
+    log_error "Fișierul database.sql nu a fost găsit în arhiva descărcată."
+fi
 
-encrypt(rHost, rUsername, rPassword, rDatabase, rServerID, rPort)
-END
+# Actualizează datele în baza de date
+log_info "Se actualizează setările în baza de date..."
+Padmin=$(perl -e 'print crypt($ARGV[0], "$6$rounds=5000$xtreamcodes")' "$ADMIN_PASS")
+mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE reg_users SET username = '$ADMIN_USER', password = '$Padmin', email = '$ADMIN_EMAIL' WHERE id = 1;"
+mysql -u root -p"$PASSMYSQL" xtream_iptvpro -e "UPDATE streaming_servers SET server_ip='127.0.0.1' WHERE id=1;"
 
-log_info "Configuring PHP-FPM..."
-cat > /etc/php/$PHP_VERSION/fpm/pool.d/xtreamcodes.conf <<EOF
-[xtreamcodes]
-user = xtreamcodes
-group = xtreamcodes
-listen = $PHP_SOCK
+log_success "Panoul a fost instalat și baza de date importată."
+
+# --- 8. Generare Configurație și Setare Permisiuni ---
+log_step "Generare fișier de configurare și setare permisiuni"
+
+log_info "Se generează fișierul de configurare config (compatibil Python 3)..."
+python3 -c "
+import base64
+from itertools import cycle
+
+config_data = '{\"host\":\"127.0.0.1\",\"db_user\":\"user_iptvpro\",\"db_pass\":\"$XPASS\",\"db_name\":\"xtream_iptvpro\",\"server_id\":\"1\", \"db_port\":\"3306\"}'
+key = '5709650b0d7806074842c6de575025b1'
+
+encrypted_bytes = bytes([ord(c) ^ ord(k) for c, k in zip(config_data, cycle(key))])
+encoded = base64.b64encode(encrypted_bytes).decode('ascii')
+
+with open('${XC_PANEL_DIR}/config', 'w') as f:
+    f.write(encoded)
+"
+if [[ ! -f "${XC_PANEL_DIR}/config" ]]; then
+    log_error "Generarea fișierului config a eșuat."
+fi
+
+log_info "Se setează permisiunile corecte pentru fișiere..."
+chown -R "$XC_USER":"$XC_USER" "$XC_HOME"
+chmod -R 777 "${XC_PANEL_DIR}/streams" "${XC_PANEL_DIR}/tmp" "${XC_PANEL_DIR}/logs"
+
+log_success "Configurația și permisiunile au fost setate."
+
+# --- 9. Configurare Servicii (PHP-FPM & Nginx) ---
+log_step "Configurare PHP-FPM și Nginx"
+
+# Configurare PHP-FPM Pool
+cat > "/etc/php/${PHP_VERSION}/fpm/pool.d/xtreamcodes.conf" <<EOF
+[${XC_USER}]
+user = ${XC_USER}
+group = ${XC_USER}
+listen = ${PHP_SOCK}
 listen.owner = www-data
 listen.group = www-data
 listen.mode = 0660
-
 pm = dynamic
 pm.max_children = 50
 pm.start_servers = 5
 pm.min_spare_servers = 5
 pm.max_spare_servers = 15
-pm.max_requests = 1000
-
-chdir = /home/xtreamcodes/iptv_xtream_codes
+chdir = /
 EOF
 
-log_info "Configuring Nginx..."
-cat > /etc/nginx/nginx.conf <<EOF
-user www-data;
-worker_processes auto;
-worker_rlimit_nofile 300000;
-pid /run/nginx.pid;
+# Configurare Nginx
+cat > /etc/nginx/sites-available/xtreamcodes.conf <<EOF
+server {
+    listen $ACCESSPORT default_server;
+    server_name _;
 
-events {
-    worker_connections 20000;
-    use epoll;
-    multi_accept on;
-}
+    root ${XC_PANEL_DIR}/admin;
+    index index.php index.html index.htm;
 
-http {
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 30;
-    keepalive_requests 10000;
-    types_hash_max_size 2048;
-    server_tokens off;
-    client_max_body_size 500M;
-
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    gzip on;
-    gzip_vary on;
-    gzip_proxied any;
-    gzip_comp_level 6;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-
-    server {
-        listen $ACCESPORT;
-        server_name _;
-        root /home/xtreamcodes/iptv_xtream_codes/admin;
-        index index.php;
-
-        location / {
-            try_files \$uri \$uri/ /index.php?\$query_string;
-        }
-
-        location ~ \.php\$ {
-            fastcgi_split_path_info ^(.+\.php)(/.+)\$;
-            fastcgi_pass unix:$PHP_SOCK;
-            fastcgi_index index.php;
-            include fastcgi_params;
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-            fastcgi_param PATH_INFO \$fastcgi_path_info;
-            fastcgi_read_timeout 300;
-        }
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
     }
 
-    server {
-        listen $CLIENTACCESPORT;
-        server_name _;
-        root /home/xtreamcodes/iptv_xtream_codes/wwwdir;
-        index index.php;
+    location ~ \.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:${PHP_SOCK};
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
 
-        location / {
-            try_files \$uri \$uri/ /index.php?\$query_string;
-        }
-
-        location ~ \.php\$ {
-            fastcgi_split_path_info ^(.+\.php)(/.+)\$;
-            fastcgi_pass unix:$PHP_SOCK;
-            fastcgi_index index.php;
-            include fastcgi_params;
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-            fastcgi_param PATH_INFO \$fastcgi_path_info;
-            fastcgi_read_timeout 300;
-        }
+    # Blochează accesul la fișierele sensibile
+    location ~ /\.ht {
+        deny all;
     }
 }
 EOF
 
-log_success "Installation completed for XtreamCodes Enhanced v2.0 with PHP fallback"
+# Activare site Nginx
+ln -s -f /etc/nginx/sites-available/xtreamcodes.conf /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
 
+# Verifică configurația Nginx înainte de a reporni
+if ! nginx -t; then
+    log_error "Configurația Nginx este invalidă. Vă rugăm verificați fișierul /etc/nginx/sites-available/xtreamcodes.conf"
+fi
+
+log_info "Se repornesc serviciile..."
+systemctl restart "php${PHP_VERSION}-fpm"
+systemctl enable "php${PHP_VERSION}-fpm"
+systemctl restart nginx
+systemctl enable nginx
+
+log_success "PHP-FPM și Nginx au fost configurate și repornite."
+
+# --- 10. Finalizare ---
+log_step "Instalare finalizată!"
+
+# Afișează adresa IP a serverului
+IP_ADDR=$(hostname -I | awk '{print $1}')
+
+cat << FINAL_MSG
+
+Felicitări! Panoul Xtream Codes a fost instalat cu succes.
+
+Puteți accesa panoul de administrare la adresa:
+URL: http://${IP_ADDR}:${ACCESSPORT}
+
+Date de autentificare:
+Utilizator: ${ADMIN_USER}
+Parola:     ${ADMIN_PASS}
+
+AVERTISMENT DE SECURITATE:
+- Salvați această parolă într-un loc sigur.
+- Se recomandă să ștergeți istoricul comenzilor ('history -c') pentru a elimina urmele parolelor.
+
+FINAL_MSG
+
+exit 0
