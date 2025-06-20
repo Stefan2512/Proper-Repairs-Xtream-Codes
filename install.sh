@@ -7,10 +7,9 @@
 # Date: 2025-06-20
 #
 # Logic:
-# - Final approach: Downloads the single 'Source code (zip)' archive from the
-#   v1.0 tag to prevent multiple, unreliable downloads. This archive is
-#   guaranteed to contain all necessary files (panel files, database.sql, etc).
-# - This is the most robust method to prevent network-related download failures.
+# - Final approach based on visual evidence from the GitHub release page.
+# - Downloads 'xc-a-la-stefan.zip' and 'database.sql' as two separate assets.
+#   This is the only remaining logical method.
 # - Fully non-interactive and includes all previous fixes.
 # ==============================================================================
 
@@ -18,7 +17,9 @@
 set -euo pipefail
 
 # --- Variables and Constants ---
-readonly RELEASE_ARCHIVE_URL="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/archive/refs/tags/v1.0.zip"
+readonly RELEASE_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0"
+readonly PANEL_ARCHIVE_URL="${RELEASE_URL_PREFIX}/xc-a-la-stefan.zip"
+readonly DATABASE_SQL_URL="${RELEASE_URL_PREFIX}/database.sql"
 readonly XC_USER="xtreamcodes"
 readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
@@ -39,8 +40,7 @@ log_warning() { log "WARNING" "⚠️ $1"; }
 # --- Cleanup Function on Exit ---
 trap cleanup EXIT
 cleanup() {
-  rm -f "/tmp/release.zip"
-  rm -rf "/tmp/Proper-Repairs-Xtream-Codes-1.0"
+  rm -f "/tmp/panel.zip" "/tmp/database.sql"
   log_info "Temporary files have been deleted."
 }
 
@@ -52,7 +52,7 @@ clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
 │   Xtream Codes "Proper Repairs" Installer (Stefan2512 Fork)       │
-│           (Final Version - Single Download Method)                │
+│           (Final Version - Separate Downloads Method)             │
 └───────────────────────────────────────────────────────────────────┘
 > This script will install the panel using assets from your GitHub fork.
 HEADER
@@ -198,29 +198,36 @@ log_success "Database and user created successfully."
 # --- 6. Panel Download and Installation ---
 log_step "Downloading and installing panel files"
 
-log_info "Downloading single release archive (Source code)..."
-wget -q -O "/tmp/release.zip" "$RELEASE_ARCHIVE_URL"
-log_success "Release archive downloaded."
+log_info "Downloading panel archive (xc-a-la-stefan.zip)..."
+wget -q -O "/tmp/panel.zip" "$PANEL_ARCHIVE_URL"
+log_success "Panel archive downloaded."
 
-log_info "Extracting files..."
-unzip -o -q "/tmp/release.zip" -d "/tmp/"
+log_info "Downloading database.sql..."
+wget -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
+log_success "Database SQL file downloaded."
 
-# Muta fisierele din directorul extras (care are un nume variabil) in locatia finala
-TEMP_DIR="/tmp/Proper-Repairs-Xtream-Codes-1.0"
-if [ -d "$TEMP_DIR" ]; then
-    log_info "Moving files from temporary directory to $XC_PANEL_DIR"
-    mkdir -p "$XC_PANEL_DIR"
-    # Mută tot conținutul, inclusiv fișierele ascunse (dacă există)
-    mv ${TEMP_DIR}/* ${XC_PANEL_DIR}/
-else
-    log_error "Could not find the unzipped directory: $TEMP_DIR"
+log_info "Extracting panel files into $XC_PANEL_DIR..."
+mkdir -p "$XC_PANEL_DIR"
+unzip -o -q "/tmp/panel.zip" -d "$XC_PANEL_DIR"
+
+# Verificare pentru a ne asigura că extracția a funcționat
+if [ ! -d "${XC_PANEL_DIR}/admin" ]; then
+    log_warning "The 'admin' directory was not found. Checking for a 'main_panel' subdirectory..."
+    if [ -d "${XC_PANEL_DIR}/main_panel" ]; then
+        log_info "Found 'main_panel' subdirectory, moving contents up..."
+        mv ${XC_PANEL_DIR}/main_panel/* ${XC_PANEL_DIR}/
+        rm -rf "${XC_PANEL_DIR}/main_panel"
+    else
+        log_error "Extraction failed. The 'admin' directory was not found in $XC_PANEL_DIR."
+    fi
 fi
+log_success "Panel files extracted."
 
-log_info "Importing database from extracted file..."
-if [ -f "${XC_PANEL_DIR}/database.sql" ]; then
-    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "${XC_PANEL_DIR}/database.sql"
+log_info "Importing database..."
+if [ -f "/tmp/database.sql" ]; then
+    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "/tmp/database.sql"
 else
-    log_error "database.sql not found after extraction."
+    log_error "Downloaded database.sql file not found."
 fi
 
 log_info "Updating settings in the database..."
