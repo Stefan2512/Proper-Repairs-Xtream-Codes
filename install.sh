@@ -52,7 +52,7 @@ cleanup() {
 clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
-│   Xtream Codes "Proper Repairs" Installer (Stefan2512 Fork)       │
+│   Xtream Codes Dragon Shield Update Installer by Stefan2512       │
 │                  (Fully Automatic / Non-Interactive)              │
 └───────────────────────────────────────────────────────────────────┘
 > This script will install the panel using assets from your GitHub fork.
