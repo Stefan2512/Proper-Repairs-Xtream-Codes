@@ -7,9 +7,10 @@
 # Date: 2025-06-20
 #
 # Logic:
-# - Final approach based on visual evidence from the GitHub release page.
-# - Downloads 'xc-a-la-stefan.zip' and 'database.sql' as two separate assets.
-#   This is the only remaining logical method.
+# - Final version based on user-provided screenshots of the repository structure.
+# - Downloads the OS-specific panel archive from the GitHub Release assets.
+# - Downloads database.sql from the main branch of the repository.
+# - This logic is definitive and based on the actual file locations.
 # - Fully non-interactive and includes all previous fixes.
 # ==============================================================================
 
@@ -17,9 +18,7 @@
 set -euo pipefail
 
 # --- Variables and Constants ---
-readonly RELEASE_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0"
-readonly PANEL_ARCHIVE_URL="${RELEASE_URL_PREFIX}/xc-a-la-stefan.zip"
-readonly DATABASE_SQL_URL="${RELEASE_URL_PREFIX}/database.sql"
+readonly REPO_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
 readonly XC_USER="xtreamcodes"
 readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
@@ -40,7 +39,7 @@ log_warning() { log "WARNING" "⚠️ $1"; }
 # --- Cleanup Function on Exit ---
 trap cleanup EXIT
 cleanup() {
-  rm -f "/tmp/panel.zip" "/tmp/database.sql"
+  rm -f "/tmp/panel.tar.gz" "/tmp/database.sql"
   log_info "Temporary files have been deleted."
 }
 
@@ -52,9 +51,9 @@ clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
 │   Xtream Codes "Proper Repairs" Installer (Stefan2512 Fork)       │
-│           (Final Version - Separate Downloads Method)             │
+│                  (Definitive Version)                             │
 └───────────────────────────────────────────────────────────────────┘
-> This script will install the panel using assets from your GitHub fork.
+> This script will install the panel using the correct assets from your GitHub fork.
 HEADER
 echo
 log_warning "This is a non-interactive script. Installation will proceed automatically."
@@ -88,6 +87,8 @@ log_success "Initial checks passed."
 # --- 2. Set Installation Variables ---
 log_step "Setting installation variables"
 
+PANEL_ARCHIVE_URL="${REPO_URL_PREFIX}/releases/download/v1.0/xtreamcodes_enhanced_Ubuntu_${OS_VER}.tar.gz"
+DATABASE_SQL_URL="${REPO_URL_PREFIX}/raw/master/database.sql"
 PASSMYSQL=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 XPASS=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 ADMIN_USER="admin"
@@ -198,28 +199,24 @@ log_success "Database and user created successfully."
 # --- 6. Panel Download and Installation ---
 log_step "Downloading and installing panel files"
 
-log_info "Downloading panel archive (xc-a-la-stefan.zip)..."
-wget -q -O "/tmp/panel.zip" "$PANEL_ARCHIVE_URL"
+mkdir -p "$XC_PANEL_DIR"
+
+log_info "Downloading panel archive for Ubuntu ${OS_VER}..."
+wget --no-check-certificate -q -O "/tmp/panel.tar.gz" "$PANEL_ARCHIVE_URL"
 log_success "Panel archive downloaded."
 
-log_info "Downloading database.sql..."
-wget -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
+log_info "Downloading database.sql from main branch..."
+wget --no-check-certificate -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
 log_success "Database SQL file downloaded."
 
 log_info "Extracting panel files into $XC_PANEL_DIR..."
-mkdir -p "$XC_PANEL_DIR"
-unzip -o -q "/tmp/panel.zip" -d "$XC_PANEL_DIR"
+# The archive contains a single directory, e.g., 'xtreamcodes_enhanced_Ubuntu_22.04'.
+# --strip-components=1 removes this top-level directory during extraction.
+tar -xzf "/tmp/panel.tar.gz" -C "$XC_PANEL_DIR" --strip-components=1
 
-# Verificare pentru a ne asigura că extracția a funcționat
+# Verification to ensure extraction was successful
 if [ ! -d "${XC_PANEL_DIR}/admin" ]; then
-    log_warning "The 'admin' directory was not found. Checking for a 'main_panel' subdirectory..."
-    if [ -d "${XC_PANEL_DIR}/main_panel" ]; then
-        log_info "Found 'main_panel' subdirectory, moving contents up..."
-        mv ${XC_PANEL_DIR}/main_panel/* ${XC_PANEL_DIR}/
-        rm -rf "${XC_PANEL_DIR}/main_panel"
-    else
-        log_error "Extraction failed. The 'admin' directory was not found in $XC_PANEL_DIR."
-    fi
+    log_error "Extraction failed. The 'admin' directory was not found in $XC_PANEL_DIR."
 fi
 log_success "Panel files extracted."
 
