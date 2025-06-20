@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# Xtream Codes "Proper Repairs" - Modernized & Non-Interactive Installer v3.5
+# Xtream Codes "Proper Repairs" - Modernized & Non-Interactive Installer v3.6
 # ==============================================================================
 # Created by: Gemini AI (based on the original script by Stefan2512)
 # Date: 2025-06-20
 #
 # KEY IMPROVEMENTS:
-# - v3.5: Corrected panel archive name to 'xc-a-la-stefan.zip' based on user feedback.
-# - v3.4: Corrected download logic to fetch separate release assets.
-# - v3.2: Fixed MariaDB password set command & php-fpm service name typo.
-# - Fully non-interactive for automated deployments.
+# - v3.6: Using the correct archive name 'xtreamcodes_enhanced_Ubuntu_22.04.tar.gz'
+#         and 'tar' for extraction, as per user's definitive instructions.
+# - Fully non-interactive, compatible with Ubuntu 18.04, 20.04, 22.04.
+# - All previous fixes for MariaDB, Python 3, and download logic are included.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- Variables and Constants ---
 readonly RELEASE_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0"
-readonly PANEL_ZIP_URL="${RELEASE_URL_PREFIX}/xc-a-la-stefan.zip"
+readonly PANEL_ARCHIVE_URL="${RELEASE_URL_PREFIX}/xtreamcodes_enhanced_Ubuntu_22.04.tar.gz"
 readonly DATABASE_SQL_URL="${RELEASE_URL_PREFIX}/database.sql"
 readonly XC_USER="xtreamcodes"
 readonly XC_HOME="/home/${XC_USER}"
@@ -40,7 +40,7 @@ log_warning() { log "WARNING" "⚠️ $1"; }
 # --- Cleanup Function on Exit ---
 trap cleanup EXIT
 cleanup() {
-  rm -f "/tmp/xc-a-la-stefan.zip" "/tmp/database.sql"
+  rm -f "/tmp/panel.tar.gz" "/tmp/database.sql"
   log_info "Temporary files have been deleted."
 }
 
@@ -52,7 +52,7 @@ clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
 │   Modern & Secure Installer for Xtream Codes "Proper Repairs"     │
-│                           Version 3.5 (Final)                     │
+│                           Version 3.6 (Final)                     │
 │                  (Fully Automatic / Non-Interactive)              │
 └───────────────────────────────────────────────────────────────────┘
 > This script will install and configure the Xtream Codes panel, MariaDB,
@@ -203,25 +203,18 @@ log_step "Downloading and installing panel files"
 
 mkdir -p "$XC_PANEL_DIR"
 
-log_info "Downloading panel archive (xc-a-la-stefan.zip) from GitHub Releases..."
-wget -q -O "/tmp/xc-a-la-stefan.zip" "$PANEL_ZIP_URL"
+log_info "Downloading panel archive (xtreamcodes_enhanced_Ubuntu_22.04.tar.gz)..."
+wget -q -O "/tmp/panel.tar.gz" "$PANEL_ARCHIVE_URL"
 log_success "Panel archive downloaded."
 
-log_info "Downloading database.sql from GitHub Releases..."
+log_info "Downloading database.sql..."
 wget -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
 log_success "Database SQL file downloaded."
 
-log_info "Unzipping panel to $XC_PANEL_DIR..."
-unzip -o -q "/tmp/xc-a-la-stefan.zip" -d "$XC_PANEL_DIR"
+log_info "Extracting panel files to $XC_PANEL_DIR..."
+tar -xzf "/tmp/panel.tar.gz" -C "$XC_PANEL_DIR"
 
-# Move files from the 'main_panel' subdirectory if it exists after unzipping
-if [ -d "${XC_PANEL_DIR}/main_panel" ]; then
-    mv ${XC_PANEL_DIR}/main_panel/* ${XC_PANEL_DIR}/
-    rm -rf "${XC_PANEL_DIR}/main_panel"
-    log_info "Organized files from the 'main_panel' subdirectory."
-fi
-
-log_info "Importing database from SQL file..."
+log_info "Importing database..."
 if [ -f "/tmp/database.sql" ]; then
     mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "/tmp/database.sql"
 else
@@ -343,7 +336,3 @@ SECURITY WARNING:
 FINAL_MSG
 
 exit 0
-EOF
-
-chmod +x install.sh && sudo ./install.sh
-```
