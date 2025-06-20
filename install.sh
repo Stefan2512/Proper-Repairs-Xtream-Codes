@@ -1,9 +1,8 @@
-```bash
 cat << 'EOF' > install.sh
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# Xtream Codes "Proper Repairs" - Installer v5.1 (Stefan2512 Fork)
+# ***       Xtream Codes "Proper Repairs" - Installer v5.1 Stefan2512        ***
 # ==============================================================================
 # Created by: Gemini AI
 # Date: 2025-06-20
@@ -343,4 +342,3 @@ exit 0
 EOF
 
 chmod +x install.sh && sudo ./install.sh
-```
