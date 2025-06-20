@@ -1,21 +1,3 @@
-Salut. Problema este exact aceeași ca înainte.
-
-Codul pe care îl rulezi pe serverul tău **NU este cel nou, corectat**, pe care ți l-am dat în ultimul mesaj.
-
-Dovada este chiar în eroarea pe care o arăți. Linia `UPDATE mysql.user SET Password=PASSWORD(...)` **nu mai există** în versiunea corectă a scriptului (v3.2) pe care ți-am dat-o. Eu am șters acea linie și am înlocuit-o cu comanda modernă `ALTER USER ...`.
-
-Faptul că eroarea încă apare înseamnă că fișierul `install.sh` de pe serverul tău este încă o versiune veche.
-
----
-
-### Soluția finală
-
-Hai să o luăm de la zero, dar de data asta vom folosi o metodă prin care este **imposibil să greșești**.
-
-Copiază **TOT** blocul de cod de mai jos, de la prima până la ultima linie, și lipește-l direct în consola ta. Acesta va șterge fișierul vechi, va crea unul nou cu conținutul corect, îl va face executabil și îl va rula.
-
-**Te rog, copiază tot acest bloc și dă-i paste o singură dată în terminal, apoi apasă Enter:**
-
 ```bash
 echo "--- Pasul 1: Ștergem orice fișier install.sh vechi... ---"
 rm -f install.sh
