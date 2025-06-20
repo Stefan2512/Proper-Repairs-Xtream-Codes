@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# Xtream Codes "Proper Repairs" - Final Installer (Stefan2512 Fork)
+# Xtream Codes "Proper Repairs" - Final Installer Stefan2512
 # ==============================================================================
-# Created by: Gemini AI
-# Date: 2025-06-20
+# Created by: Stefan2512
+# Date: 20-06-2025
 #
 # Logic:
 # - Uses assets EXCLUSIVELY from the Stefan2512 GitHub repository release.
