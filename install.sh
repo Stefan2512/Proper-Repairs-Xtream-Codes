@@ -1,24 +1,26 @@
-cat << 'EOF' > install.sh
 #!/usr/bin/env bash
 #
 # ==============================================================================
-# ***       Xtream Codes "Proper Repairs" - Installer v5.1 Stefan2512        ***
+# Xtream Codes "Proper Repairs" - Final Installer (Stefan2512 Fork)
 # ==============================================================================
 # Created by: Gemini AI
-# Date: 20-06-2025
+# Date: 2025-06-20
 #
-# KEY IMPROVEMENTS:
-# - v5.1: Switched to downloading the single 'Source code' archive from the release
-#         to prevent multiple download failures and ensure all files are present.
-# - Fully non-interactive, compatible with Ubuntu 18.04, 20.04, 22.04.
-# - Includes all previous fixes for MariaDB, Python 3, and file extraction.
+# Logic:
+# - Uses assets EXCLUSIVELY from the Stefan2512 GitHub repository release.
+# - Downloads 'xtreamcodes_enhanced_Ubuntu_22.04.tar.gz' and 'database.sql'.
+# - Extracts the archive correctly into the target directory.
+# - Fully non-interactive and compatible with Ubuntu 18.04, 20.04, 22.04.
+# - Contains all previously developed fixes for MariaDB and Python 3.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
 set -euo pipefail
 
 # --- Variables and Constants ---
-readonly RELEASE_ARCHIVE_URL="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/archive/refs/tags/v1.0.zip"
+readonly RELEASE_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0"
+readonly PANEL_ARCHIVE_URL="${RELEASE_URL_PREFIX}/xtreamcodes_enhanced_Ubuntu_22.04.tar.gz"
+readonly DATABASE_SQL_URL="${RELEASE_URL_PREFIX}/database.sql"
 readonly XC_USER="xtreamcodes"
 readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
@@ -39,8 +41,7 @@ log_warning() { log "WARNING" "⚠️ $1"; }
 # --- Cleanup Function on Exit ---
 trap cleanup EXIT
 cleanup() {
-  rm -f "/tmp/release.zip"
-  rm -rf "/tmp/Proper-Repairs-Xtream-Codes-1.0"
+  rm -f "/tmp/panel.tar.gz" "/tmp/database.sql"
   log_info "Temporary files have been deleted."
 }
 
@@ -51,10 +52,10 @@ cleanup() {
 clear
 cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
-│   Xtream Codes "Proper Repairs" Installer v5.1 (Stefan2512 Fork)  │
+│   Xtream Codes "Proper Repairs" Installer (Stefan2512 Fork)       │
 │                  (Fully Automatic / Non-Interactive)              │
 └───────────────────────────────────────────────────────────────────┘
-> This script will install the panel using assets from the Stefan2512 fork.
+> This script will install the panel using assets from your GitHub fork.
 HEADER
 echo
 log_warning "This is a non-interactive script. Installation will proceed automatically."
@@ -198,30 +199,30 @@ log_success "Database and user created successfully."
 # --- 6. Panel Download and Installation ---
 log_step "Downloading and installing panel files"
 
-log_info "Downloading single release archive..."
-wget -q -O "/tmp/release.zip" "$RELEASE_ARCHIVE_URL"
-log_success "Release archive downloaded."
+mkdir -p "$XC_PANEL_DIR"
 
-log_info "Extracting files..."
-unzip -o -q "/tmp/release.zip" -d "/tmp/"
+log_info "Downloading panel archive (xtreamcodes_enhanced_Ubuntu_22.04.tar.gz)..."
+wget -q -O "/tmp/panel.tar.gz" "$PANEL_ARCHIVE_URL"
+log_success "Panel archive downloaded."
 
-# Muta fisierele din directorul extras in locatia finala
-TEMP_DIR="/tmp/Proper-Repairs-Xtream-Codes-1.0"
-if [ -d "$TEMP_DIR" ]; then
-    log_info "Moving files from temporary directory to $XC_PANEL_DIR"
-    # Asigură-te că directorul destinație există
-    mkdir -p "$XC_PANEL_DIR"
-    # Mută tot conținutul, inclusiv fișierele ascunse
-    mv ${TEMP_DIR}/* ${TEMP_DIR}/.github ${XC_PANEL_DIR}/
-else
-    log_error "Could not find the unzipped directory: $TEMP_DIR"
+log_info "Downloading database.sql..."
+wget -q -O "/tmp/database.sql" "$DATABASE_SQL_URL"
+log_success "Database SQL file downloaded."
+
+log_info "Extracting panel files to $XC_PANEL_DIR..."
+# Presupunem că arhiva conține fișierele direct, fără un director părinte
+tar -xzf "/tmp/panel.tar.gz" -C "$XC_PANEL_DIR"
+
+# Verificare pentru a ne asigura că extracția a funcționat
+if [ ! -d "${XC_PANEL_DIR}/admin" ]; then
+    log_error "Extraction failed. The 'admin' directory was not found in $XC_PANEL_DIR."
 fi
 
 log_info "Importing database..."
-if [ -f "${XC_PANEL_DIR}/database.sql" ]; then
-    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "${XC_PANEL_DIR}/database.sql"
+if [ -f "/tmp/database.sql" ]; then
+    mysql -u root -p"$PASSMYSQL" xtream_iptvpro < "/tmp/database.sql"
 else
-    log_error "database.sql not found in the extracted files."
+    log_error "Downloaded database.sql file not found."
 fi
 
 log_info "Updating settings in the database..."
@@ -339,6 +340,3 @@ SECURITY WARNING:
 FINAL_MSG
 
 exit 0
-EOF
-
-chmod +x install.sh && sudo ./install.sh
