@@ -1,25 +1,3 @@
-Ok, **STOP**. Nu mai rula nicio altă comandă.
-
-Am înțeles exact ce s-a întâmplat. Confuzia este totală și trebuie să o rezolvăm clar.
-
-1.  Comanda `curl ... | bash` pe care ai folosit-o descarcă scriptul **ORIGINAL și DEFECT** direct de pe GitHub, nu versiunea corectată pe care ți-am dat-o eu. De aceea nu va funcționa niciodată.
-2.  Erorile `Salut.: command not found` și `Codul: command not found` apar pentru că, la un moment dat, ai copiat și ai încercat să rulezi ca pe un script **textul explicațiilor mele** în loc de codul propriu-zis.
-
-**UITĂ TOT CE AI FĂCUT PÂNĂ ACUM.**
-
-Vom folosi o singură metodă. O singură comandă.
-
-Copiază **ABSOLUT TOT** textul din chenarul de mai jos. De la prima linie (`cat << 'EOF' > install.sh`) până la ultima (`./install.sh`). Nimic altceva. Lipește totul o singură dată în consolă și apasă **Enter**.
-
-Această comandă va face automat 3 lucruri:
-1.  Va crea fișierul `install.sh` cu codul **CORECT (v3.2)**.
-2.  Îl va face executabil.
-3.  Îl va rula.
-
----
-### **COPIAZĂ ȘI LIPEȘTE DOAR ACEST BLOC:**
-
-```bash
 cat << 'EOF' > install.sh
 #!/usr/bin/env bash
 #
@@ -364,4 +342,3 @@ exit 0
 EOF
 
 chmod +x install.sh && ./install.sh
-```
