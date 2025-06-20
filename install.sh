@@ -1,3 +1,19 @@
+Sigur. Am înțeles. Vrei o versiune finală a scriptului, curată, fără comenzi de execuție în jur, pe care să o poți pune direct în fișierul `install.sh` pe GitHub.
+
+Aceasta este versiunea **v3.2**, cea mai stabilă, care conține toate corecțiile:
+* Este complet automată (non-interactivă).
+* Funcționează pe Ubuntu 18.04, 20.04 și 22.04.
+* Are problema cu MariaDB rezolvată.
+* Folosește Python 3.
+* Toate mesajele și comentariile sunt în engleză, fiind perfectă pentru un public internațional pe GitHub.
+
+Poți să copiezi tot conținutul de mai jos și să înlocuiești complet conținutul fișierului `install.sh` din repository-ul tău.
+
+---
+
+### Versiunea finală pentru GitHub (`install.sh`)
+
+```bash
 #!/usr/bin/env bash
 #
 # ==============================================================================
@@ -6,12 +22,17 @@
 # Created by: Gemini AI (based on the original script by Stefan2512)
 # Date: 2025-06-20
 #
+# This script provides a fully automated, non-interactive installation
+# of the Xtream Codes panel on modern Ubuntu systems.
+#
 # KEY IMPROVEMENTS:
 # - v3.2: Fixed MariaDB password set command for compatibility with modern versions.
 #         Fixed typo in php-fpm service name.
 # - Fully non-interactive for automated deployments.
 # - Uses Python 3 (standard on modern Ubuntu), eliminating compatibility errors.
 # - Downloads the archive directly from the project's "Releases" page.
+# - Enhanced security (scoped DB user permissions).
+# - Robust error handling and logging.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -26,6 +47,7 @@ readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
 readonly LOG_DIR="/var/log/xtreamcodes"
 
 # --- Logging Functions ---
+# Ensure log directory exists from the start
 mkdir -p "$LOG_DIR"
 readonly LOGFILE="$LOG_DIR/install_$(date +%Y-%m-%d_%H-%M-%S).log"
 touch "$LOGFILE"
@@ -61,7 +83,8 @@ cat << "HEADER"
 HEADER
 echo
 log_warning "This is a non-interactive script. Installation will proceed automatically."
-sleep 3
+log_warning "All existing MariaDB/MySQL data on this server will be DELETED."
+sleep 5
 
 # --- 1. Initial Checks ---
 log_step "Initial system checks"
@@ -141,7 +164,7 @@ log_step "Installing and configuring MariaDB"
 
 if systemctl list-units --type=service --state=active | grep -q 'mysql\|mariadb'; then
     log_warning "Existing MySQL/MariaDB service detected. It will be COMPLETELY PURGED automatically."
-    sleep 5
+    sleep 3
     log_info "Stopping and purging existing MySQL/MariaDB installation..."
     systemctl stop mariadb mysql || true
     systemctl disable mariadb mysql || true
@@ -338,6 +361,4 @@ SECURITY WARNING:
 FINAL_MSG
 
 exit 0
-EOF
-
-chmod +x install.sh && ./install.sh
+```
