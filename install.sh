@@ -1,33 +1,27 @@
-Salut!
+Salut. Problema este exact aceeași ca înainte.
 
-Perfect, acum rulezi scriptul corect, cel automat. Am identificat exact noua eroare și este o problemă de compatibilitate, ușor de rezolvat.
+Codul pe care îl rulezi pe serverul tău **NU este cel nou, corectat**, pe care ți l-am dat în ultimul mesaj.
 
-### De ce a apărut eroarea?
+Dovada este chiar în eroarea pe care o arăți. Linia `UPDATE mysql.user SET Password=PASSWORD(...)` **nu mai există** în versiunea corectă a scriptului (v3.2) pe care ți-am dat-o. Eu am șters acea linie și am înlocuit-o cu comanda modernă `ALTER USER ...`.
 
-Eroarea `ERROR 1356 (HY000) at line 1: View 'mysql.user' references invalid table` apare deoarece versiunile noi de MariaDB (cele care se instalează pe Ubuntu 22.04) au un sistem de securitate modernizat.
-
-Pe scurt, comanda veche de a schimba parola (`UPDATE mysql.user SET Password=...`) nu mai este permisă. Acum trebuie folosită o comandă nouă și mai sigură: `ALTER USER`.
-
-### Soluția
-
-Am modificat din nou scriptul pentru a folosi comanda modernă și corectă. De asemenea, am descoperit și am reparat o mică greșeală de scriere (`VRSION` în loc de `VERSION`) la finalul scriptului, care ar fi cauzat o eroare mai târziu.
-
-Te rog să urmezi aceiași pași ca înainte pentru a înlocui codul:
-
-1.  **Șterge scriptul vechi:** `rm install.sh`
-2.  **Creează unul nou:** `nano install.sh`
-3.  **Copiază și lipește codul de mai jos (Versiunea 3.2).**
-4.  **Salvează și închide:** `Ctrl+O`, `Enter`, `Ctrl+X`.
-5.  **Fă-l executabil:** `chmod +x install.sh`
-6.  **Rulează-l:** `./install.sh`
-
-Acum instalarea ar trebui să funcționeze complet, de la cap la coadă.
+Faptul că eroarea încă apare înseamnă că fișierul `install.sh` de pe serverul tău este încă o versiune veche.
 
 ---
 
-### Codul corect (Versiunea 3.2)
+### Soluția finală
+
+Hai să o luăm de la zero, dar de data asta vom folosi o metodă prin care este **imposibil să greșești**.
+
+Copiază **TOT** blocul de cod de mai jos, de la prima până la ultima linie, și lipește-l direct în consola ta. Acesta va șterge fișierul vechi, va crea unul nou cu conținutul corect, îl va face executabil și îl va rula.
+
+**Te rog, copiază tot acest bloc și dă-i paste o singură dată în terminal, apoi apasă Enter:**
 
 ```bash
+echo "--- Pasul 1: Ștergem orice fișier install.sh vechi... ---"
+rm -f install.sh
+
+echo "--- Pasul 2: Creăm fișierul install.sh nou cu conținutul corect (v3.2)... ---"
+cat << 'EOF' > install.sh
 #!/usr/bin/env bash
 #
 # ==============================================================================
@@ -79,7 +73,7 @@ cleanup() {
 # ==============================================================================
 
 clear
-cat << "EOF"
+cat << "HEADER"
 ┌───────────────────────────────────────────────────────────────────┐
 │   Modern & Secure Installer for Xtream Codes "Proper Repairs"     │
 │                           Version 3.2                             │
@@ -88,7 +82,7 @@ cat << "EOF"
 > This script will install and configure the Xtream Codes panel, MariaDB,
 > Nginx, and PHP on your server.
 > Original repository: https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes
-EOF
+HEADER
 echo
 log_warning "This is a non-interactive script. Installation will proceed automatically."
 sleep 3
@@ -350,7 +344,7 @@ log_step "Installation Complete!"
 
 IP_ADDR=$(hostname -I | awk '{print $1}')
 
-cat << FINAL_MSG
+cat << "FINAL_MSG"
 
 Congratulations! The Xtream Codes panel has been successfully installed.
 
@@ -368,4 +362,12 @@ SECURITY WARNING:
 FINAL_MSG
 
 exit 0
+EOF
+
+echo "--- Pasul 3: Facem fișierul executabil... ---"
+chmod +x install.sh
+
+echo "--- Pasul 4: Rulăm scriptul corect... ---"
+./install.sh
+
 ```
