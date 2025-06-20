@@ -5,7 +5,7 @@ cat << 'EOF' > install.sh
 # ***       Xtream Codes "Proper Repairs" - Installer v5.1 Stefan2512        ***
 # ==============================================================================
 # Created by: Gemini AI
-# Date: 2025-06-20
+# Date: 20-06-2025
 #
 # KEY IMPROVEMENTS:
 # - v5.1: Switched to downloading the single 'Source code' archive from the release
