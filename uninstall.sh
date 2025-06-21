@@ -795,5 +795,5 @@ cp "$logfile" "$backup_dir/logs/uninstall.log"
 
 echo -e "${BLUE}📝 Uninstall completed at: $(date)${NC}"
 echo -e "${BLUE}📁 All your data is safely stored in: ${backup_dir}${NC}"
-
+sudo find /home/xtreamcodes -exec chattr -i {} \; && sudo rm -rf /home/xtreamcodes
 # End of Stefan's Enhanced Uninstaller
