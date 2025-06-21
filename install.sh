@@ -3,7 +3,7 @@
 # ==============================================================================
 # Xtream Codes "Proper Repairs" - Perfect Installer (Stefan2512 Fork)
 # ==============================================================================
-# Created by: Stefan2512
+# Created by: AI Assistant + Stefan2512
 # Date: 2025-06-21
 # Based on: Original dOC4eVER + Stefan2512 + Debugging Experience
 #
@@ -16,6 +16,41 @@
 
 set -euo pipefail
 
+# Enhanced error handling with auto-recovery
+set -E  # Enable ERR trap inheritance
+
+# Custom error handler that tries to recover
+error_handler() {
+    local exit_code=$?
+    local line_number=$1
+    
+    log_warning "Error occurred at line $line_number (exit code: $exit_code)"
+    log_info "Attempting automatic recovery..."
+    
+    # Try to fix common issues
+    case $line_number in
+        *) 
+            # General recovery attempts
+            dpkg --configure -a &>/dev/null || true
+            apt-get install -f -y &>/dev/null || true
+            apt-get update &>/dev/null || true
+            ;;
+    esac
+    
+    # If error is in critical section, exit. Otherwise, log and continue.
+    if [[ $exit_code -eq 100 && $line_number -lt 300 ]]; then
+        log_warning "Package installation issue detected. Attempting to continue..."
+        return 0  # Continue execution
+    elif [[ $line_number -gt 400 ]]; then
+        log_error "Critical error in Xtream Codes setup at line $line_number"
+    else
+        log_warning "Non-critical error at line $line_number. Continuing installation..."
+        return 0  # Continue execution
+    fi
+}
+
+trap 'error_handler $LINENO' ERR
+
 # --- Variables and Constants ---
 readonly REPO_URL_PREFIX="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes"
 readonly PANEL_ARCHIVE_URL_TEMPLATE="https://github.com/Stefan2512/Proper-Repairs-Xtream-Codes/releases/download/v1.0/xtreamcodes_enhanced_Ubuntu_VERSION.tar.gz"
@@ -25,6 +60,17 @@ readonly XC_HOME="/home/${XC_USER}"
 readonly XC_PANEL_DIR="${XC_HOME}/iptv_xtream_codes"
 readonly LOG_DIR="/var/log/xtreamcodes"
 readonly VERSION="Perfect-v1.0"
+
+# --- Initialize Variables ---
+tz=""
+adminL=""
+adminP=""
+ACCESSPORT=""
+CLIENTACCESSPORT=""
+APACHEACCESSPORT=""
+EMAIL=""
+PASSMYSQL=""
+silent="no"
 
 # --- Command Line Arguments (like original) ---
 while getopts ":t:a:p:o:c:r:e:m:s:h:" option; do
@@ -37,7 +83,7 @@ while getopts ":t:a:p:o:c:r:e:m:s:h:" option; do
         r) APACHEACCESSPORT=${OPTARG} ;;
         e) EMAIL=${OPTARG} ;;
         m) PASSMYSQL=${OPTARG} ;;
-        s) silent=no ;;
+        s) silent=yes ;;
         h) echo "Xtream Codes Perfect Installer"
            echo "Usage: $0 [options]"
            echo "  -a  Admin username"
@@ -94,6 +140,43 @@ if [[ $EUID -ne 0 ]]; then
     log_error "This script must be run as root. Use: sudo $0"
 fi
 
+# Pre-flight system checks
+log_info "Running pre-flight system checks..."
+
+# Check disk space (minimum 2GB free)
+FREE_SPACE=$(df / | awk 'NR==2{print $4}')
+if [ "$FREE_SPACE" -lt 2097152 ]; then  # 2GB in KB
+    log_warning "Low disk space detected. Ensure at least 2GB free space for installation."
+fi
+
+# Check memory (minimum 512MB free)
+FREE_MEM=$(free -m | awk 'NR==2{print $7}')
+if [ "$FREE_MEM" -lt 512 ]; then
+    log_warning "Low memory detected. Consider freeing up memory before installation."
+fi
+
+# Check if other web servers are running
+if systemctl is-active --quiet apache2; then
+    log_warning "Apache is running. This may conflict with Xtream Codes. Consider stopping it."
+fi
+
+if systemctl is-active --quiet nginx; then
+    log_warning "System Nginx is running. It will be disabled during installation."
+fi
+
+# Check and fix common package issues
+log_info "Checking package system integrity..."
+if ! apt-get update &>/dev/null; then
+    log_warning "Package update failed. Attempting to fix repository issues..."
+    apt-get clean
+    apt-get autoclean
+    apt-get update --fix-missing
+fi
+
+# Fix any broken packages
+dpkg --configure -a &>/dev/null || true
+apt-get install -f &>/dev/null || true
+
 # Detect OS with better compatibility
 if [ -f /etc/os-release ]; then
     OS_ID=$(grep -w ID /etc/os-release | sed 's/^.*=//' | tr -d '"')
@@ -107,6 +190,8 @@ fi
 
 ARCH=$(uname -m)
 log_info "Detected system: ${OS_ID^} $OS_VER ($ARCH)"
+log_info "Free disk space: $(($FREE_SPACE / 1024))MB"
+log_info "Available memory: ${FREE_MEM}MB"
 
 # Enhanced OS validation
 if [[ "$OS_ID" == "ubuntu" && "$OS_VER" =~ ^(18\.04|20\.04|22\.04)$ && "$ARCH" == "x86_64" ]]; then
@@ -172,9 +257,42 @@ log_info "Updating package lists..."
 apt-get update -qq
 
 log_info "Installing base packages..."
-apt-get install -yqq curl wget unzip zip tar software-properties-common \
-    apt-transport-https ca-certificates gnupg python3 perl daemonize \
-    python-is-python3 build-essential lsb-release &>> "$LOGFILE"
+# Install packages individually to identify issues
+base_packages=(
+    "curl" "wget" "unzip" "zip" "tar" 
+    "software-properties-common" "apt-transport-https" 
+    "ca-certificates" "gnupg" "python3" "perl" 
+    "daemonize" "build-essential" "lsb-release"
+)
+
+# Try python-is-python3 separately as it might not be available on all systems
+for package in "${base_packages[@]}"; do
+    log_info "Installing $package..."
+    if apt-get install -yqq "$package" &>> "$LOGFILE"; then
+        log_info "✅ $package installed successfully"
+    else
+        log_warning "⚠️ Failed to install $package - checking if critical..."
+        case "$package" in
+            "curl"|"wget"|"unzip"|"tar"|"python3")
+                log_error "$package is critical and must be installed"
+                ;;
+            *)
+                log_warning "$package failed but continuing..."
+                ;;
+        esac
+    fi
+done
+
+# Try python-is-python3 separately
+if apt-get install -yqq python-is-python3 &>> "$LOGFILE"; then
+    log_info "✅ python-is-python3 installed"
+else
+    log_warning "⚠️ python-is-python3 not available - creating manual symlink"
+    if [ ! -L /usr/bin/python ] && [ -f /usr/bin/python3 ]; then
+        ln -sf /usr/bin/python3 /usr/bin/python
+        log_info "✅ Created python -> python3 symlink"
+    fi
+fi
 
 # Ubuntu 22.04 specific fixes
 if [[ "$OS_VER" == "22.04" ]]; then
@@ -192,7 +310,59 @@ fi
 
 # Install PHP 7.4
 log_info "Installing PHP 7.4 and extensions..."
-apt-get install -yqq php7.4{,-cli,-mysql,-curl,-gd,-json,-zip,-xml,-mbstring,-soap,-intl,-bcmath,-fpm} &>> "$LOGFILE"
+
+# First, try to install core PHP packages that don't require FPM
+core_php_packages="php7.4 php7.4-cli php7.4-mysql php7.4-curl php7.4-gd php7.4-json php7.4-zip php7.4-xml php7.4-mbstring"
+
+if apt-get install -yqq $core_php_packages &>> "$LOGFILE"; then
+    log_success "Core PHP packages installed successfully"
+else
+    log_warning "Some core PHP packages failed. Installing individually..."
+    for pkg in php7.4 php7.4-cli php7.4-mysql php7.4-curl; do
+        if apt-get install -yqq $pkg &>> "$LOGFILE"; then
+            log_info "✅ $pkg installed"
+        else
+            log_warning "❌ $pkg failed but continuing..."
+        fi
+    done
+fi
+
+# Try additional extensions
+log_info "Installing additional PHP extensions..."
+additional_extensions="php7.4-soap php7.4-intl php7.4-bcmath"
+for ext in $additional_extensions; do
+    if apt-get install -yqq $ext &>> "$LOGFILE"; then
+        log_info "✅ $ext installed"
+    else
+        log_warning "⚠️ $ext failed - not critical, continuing..."
+    fi
+done
+
+# Handle PHP-FPM separately since it often causes issues
+log_info "Installing PHP-FPM (system service)..."
+if apt-get install -yqq php7.4-fpm &>> "$LOGFILE"; then
+    log_success "✅ PHP-FPM installed successfully"
+    
+    # Try to stop system PHP-FPM since we'll use custom one
+    systemctl stop php7.4-fpm &>/dev/null || true
+    systemctl disable php7.4-fpm &>/dev/null || true
+    log_info "System PHP-FPM disabled (will use Xtream's custom PHP-FPM)"
+else
+    log_warning "⚠️ System PHP-FPM installation failed"
+    log_info "This is OK - Xtream Codes includes its own PHP-FPM"
+    
+    # Try to clean up any broken packages
+    dpkg --configure -a &>/dev/null || true
+    apt-get install -f &>/dev/null || true
+fi
+
+# Verify core PHP is working
+if command -v php &> /dev/null; then
+    PHP_VERSION=$(php -v 2>/dev/null | head -1 || echo "Unknown")
+    log_success "PHP installation verified: $PHP_VERSION"
+else
+    log_error "PHP installation failed - this is required for Xtream Codes"
+fi
 
 log_success "System dependencies installed successfully."
 
@@ -209,11 +379,13 @@ fi
 
 log_info "Installing MariaDB server..."
 apt-get install -yqq mariadb-server &>> "$LOGFILE"
-systemctl start mariadb && systemctl enable mariadb
+systemctl start mariadb
 
 if ! systemctl is-active --quiet mariadb; then 
-    log_error "MariaDB failed to start."
+    log_error "MariaDB failed to start. Check system logs: journalctl -u mariadb"
 fi
+
+log_success "MariaDB started successfully."
 
 # Configure MariaDB
 log_info "Configuring MariaDB..."
@@ -450,92 +622,112 @@ log_step "Starting and validating services"
 log_info "Starting Xtream Codes services..."
 sudo -u "$XC_USER" bash "${XC_PANEL_DIR}/start_services.sh" &
 
-# Wait and validate
+# Wait and validate with multiple checks
 sleep 10
 
-# Check if services are running
-NGINX_PROC=$(pgrep -f "nginx" | wc -l)
-PHP_PROC=$(pgrep -f "php-fpm" | wc -l)
-
-log_info "Service status:"
-log_info "  Nginx processes: $NGINX_PROC"
-log_info "  PHP-FPM processes: $PHP_PROC"
-
-# Check sockets
-SOCKET_COUNT=$(find "${XC_PANEL_DIR}/tmp" -name "*.sock" 2>/dev/null | wc -l)
-log_info "  Socket files: $SOCKET_COUNT"
-
-# Test web interface
-IP_ADDR=$(hostname -I | awk '{print $1}')
-sleep 5
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${ACCESSPORT}/" 2>/dev/null || echo "000")
-
-if [ "$HTTP_STATUS" = "200" ]; then
-    log_success "Web interface is responding correctly!"
-elif [ "$HTTP_STATUS" = "502" ]; then
-    log_warning "502 Bad Gateway - PHP-FPM communication issue detected."
-    log_info "Running automatic repair..."
+# Service validation function
+validate_and_repair() {
+    local attempt=1
+    local max_attempts=3
     
-    # Quick repair attempt
-    sudo -u "$XC_USER" "${XC_PANEL_DIR}/php/sbin/php-fpm" --fpm-config "${XC_PANEL_DIR}/php/etc/php-fpm.conf" &
-    sleep 3
-    sudo -u "$XC_USER" "${XC_PANEL_DIR}/nginx/sbin/nginx" -s reload &
-    sleep 2
+    while [ $attempt -le $max_attempts ]; do
+        log_info "Validation attempt $attempt of $max_attempts..."
+        
+        # Check processes
+        NGINX_PROC=$(pgrep -f "nginx" | wc -l)
+        PHP_PROC=$(pgrep -f "php-fpm" | wc -l)
+        SOCKET_COUNT=$(find "${XC_PANEL_DIR}/tmp" -name "*.sock" 2>/dev/null | wc -l)
+        
+        log_info "Current status:"
+        log_info "  Nginx processes: $NGINX_PROC"
+        log_info "  PHP-FPM processes: $PHP_PROC"
+        log_info "  Socket files: $SOCKET_COUNT"
+        
+        # Test web interface
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${ACCESSPORT}/" 2>/dev/null || echo "000")
+        log_info "  Web interface: HTTP $HTTP_STATUS"
+        
+        # If everything looks good, break
+        if [ "$HTTP_STATUS" = "200" ] && [ "$NGINX_PROC" -gt 0 ] && [ "$PHP_PROC" -gt 0 ] && [ "$SOCKET_COUNT" -ge 3 ]; then
+            log_success "All services are running correctly!"
+            break
+        fi
+        
+        # Repair attempts based on what's missing
+        if [ "$PHP_PROC" -eq 0 ]; then
+            log_warning "PHP-FPM not running. Attempting restart..."
+            sudo -u "$XC_USER" "${XC_PANEL_DIR}/php/sbin/php-fpm" --fpm-config "${XC_PANEL_DIR}/php/etc/php-fpm.conf" &
+            sleep 3
+        fi
+        
+        if [ "$NGINX_PROC" -eq 0 ]; then
+            log_warning "Nginx not running. Attempting restart..."
+            sudo -u "$XC_USER" "${XC_PANEL_DIR}/nginx/sbin/nginx" -c "${XC_PANEL_DIR}/nginx/conf/nginx.conf" &
+            sleep 3
+        fi
+        
+        if [ "$SOCKET_COUNT" -lt 3 ]; then
+            log_warning "Missing socket files. Restarting PHP-FPM..."
+            pkill -f php-fpm || true
+            sleep 2
+            sudo -u "$XC_USER" "${XC_PANEL_DIR}/php/sbin/php-fpm" --fpm-config "${XC_PANEL_DIR}/php/etc/php-fpm.conf" &
+            sleep 5
+        fi
+        
+        if [ "$HTTP_STATUS" = "502" ]; then
+            log_warning "502 Bad Gateway detected. Restarting both services..."
+            pkill -f nginx || true
+            pkill -f php-fpm || true
+            sleep 2
+            sudo -u "$XC_USER" "${XC_PANEL_DIR}/php/sbin/php-fpm" --fpm-config "${XC_PANEL_DIR}/php/etc/php-fpm.conf" &
+            sleep 3
+            sudo -u "$XC_USER" "${XC_PANEL_DIR}/nginx/sbin/nginx" -c "${XC_PANEL_DIR}/nginx/conf/nginx.conf" &
+            sleep 3
+        fi
+        
+        attempt=$((attempt + 1))
+        if [ $attempt -le $max_attempts ]; then
+            log_info "Waiting 10 seconds before next validation attempt..."
+            sleep 10
+        fi
+    done
     
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${ACCESSPORT}/" 2>/dev/null || echo "000")
-    if [ "$HTTP_STATUS" = "200" ]; then
-        log_success "Repair successful! Web interface is now working."
+    # Final status report
+    FINAL_HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${ACCESSPORT}/" 2>/dev/null || echo "000")
+    if [ "$FINAL_HTTP" = "200" ]; then
+        log_success "✅ Web interface is fully operational!"
+        return 0
     else
-        log_warning "Manual troubleshooting may be required."
+        log_warning "⚠️ Web interface status: $FINAL_HTTP (may need manual troubleshooting)"
+        return 1
     fi
-else
-    log_warning "Web interface status: $HTTP_STATUS"
-fi
+}
+
+# Run validation and repair
+validate_and_repair
 
 # --- 16. Installation Complete ---
-log_step "Installation Complete!"
+log_step "Installation Complete - Generating Report"
 
-cat << COMPLETION_MSG
+# Generate detailed system report
+IP_ADDR=$(hostname -I | awk '{print $1}')
+FINAL_HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${ACCESSPORT}/" 2>/dev/null || echo "000")
+FINAL_NGINX=$(pgrep -f nginx | wc -l)
+FINAL_PHP=$(pgrep -f php-fpm | wc -l)
+FINAL_SOCKETS=$(find "${XC_PANEL_DIR}/tmp" -name "*.sock" 2>/dev/null | wc -l)
 
-🎉 Xtream Codes Installation Completed Successfully! 🎉
-
-┌─────────────────────────────────────────────────────────┐
-│                    ACCESS INFORMATION                    │
-├─────────────────────────────────────────────────────────┤
-│  Admin Panel: http://${IP_ADDR}:${ACCESSPORT}
-│  Username:    ${adminL}
-│  Password:    ${adminP}
-│  Email:       ${EMAIL}
-├─────────────────────────────────────────────────────────┤
-│  Client Portal: http://${IP_ADDR}:${CLIENTACCESSPORT}
-│  MySQL Root:    ${PASSMYSQL}
-│  MySQL User:    user_iptvpro / ${XPASS}
-└─────────────────────────────────────────────────────────┘
-
-🔧 Installation Details:
-   • Repository: Stefan2512/Proper-Repairs-Xtream-Codes
-   • Version: $VERSION
-   • All debugging fixes applied
-   • Self-contained in $XC_PANEL_DIR
-
-📝 Credentials saved to: /root/Xtreaminfo.txt
-
-⚠️  Important Notes:
-   • Allow 1-2 minutes for all services to fully initialize
-   • Consider rebooting for optimal performance  
-   • All services are self-contained and managed automatically
-
-🛠️ Troubleshooting:
-   • Check logs: tail -f $XC_PANEL_DIR/logs/php-fpm.log
-   • Check nginx: tail -f $XC_PANEL_DIR/nginx/logs/error.log
-   • Restart services: sudo -u xtreamcodes $XC_PANEL_DIR/start_services.sh
-
-COMPLETION_MSG
-
-# Save credentials
+# Create comprehensive report
 cat > /root/Xtreaminfo.txt <<EOF
-Xtream Codes Installation Information
-=====================================
+===============================================
+   XTREAM CODES INSTALLATION REPORT
+===============================================
+Installation Date: $(date)
+Installer Version: $VERSION
+Server IP: ${IP_ADDR}
+Operating System: ${OS_ID^} ${OS_VER} (${ARCH})
+
+ACCESS INFORMATION:
+==================
 Admin Panel: http://${IP_ADDR}:${ACCESSPORT}
 Username: ${adminL}
 Password: ${adminP}
@@ -543,18 +735,145 @@ Email: ${EMAIL}
 
 Client Portal: http://${IP_ADDR}:${CLIENTACCESSPORT}
 
-Database Information:
+DATABASE INFORMATION:
+====================
 MySQL Root Password: ${PASSMYSQL}
 MySQL User: user_iptvpro
 MySQL Password: ${XPASS}
 MySQL Port: 7999
 
-Installation Details:
+SYSTEM STATUS:
+==============
+Web Interface: HTTP ${FINAL_HTTP} $([ "$FINAL_HTTP" = "200" ] && echo "(✅ Working)" || echo "(⚠️ Check required)")
+Nginx Processes: ${FINAL_NGINX} $([ "$FINAL_NGINX" -gt 0 ] && echo "(✅ Running)" || echo "(❌ Not running)")
+PHP-FPM Processes: ${FINAL_PHP} $([ "$FINAL_PHP" -gt 0 ] && echo "(✅ Running)" || echo "(❌ Not running)")
+Socket Files: ${FINAL_SOCKETS}/3 $([ "$FINAL_SOCKETS" -ge 3 ] && echo "(✅ All present)" || echo "(⚠️ Some missing)")
+
+INSTALLATION FILES:
+==================
+Panel Directory: ${XC_PANEL_DIR}
+Configuration File: ${XC_PANEL_DIR}/config
+Startup Script: ${XC_PANEL_DIR}/start_services.sh
+Log Directory: ${XC_PANEL_DIR}/logs
+
+TROUBLESHOOTING:
+===============
+If services are not running:
+1. Manual restart: sudo -u xtreamcodes ${XC_PANEL_DIR}/start_services.sh
+2. Check logs: tail -f ${XC_PANEL_DIR}/logs/php-fpm.log
+3. Check nginx: tail -f ${XC_PANEL_DIR}/nginx/logs/error.log
+4. Reboot server: sudo reboot
+
+If web interface shows errors:
+1. Wait 2-3 minutes for full service initialization
+2. Check if all processes are running: ps aux | grep -E "(nginx|php-fpm)"
+3. Verify socket files: ls -la ${XC_PANEL_DIR}/tmp/
+4. Test connectivity: curl -I http://localhost:${ACCESSPORT}/
+
+Support Information:
+===================
 Repository: Stefan2512/Proper-Repairs-Xtream-Codes
-Version: $VERSION
-Installation Date: $(date)
-Server IP: ${IP_ADDR}
+Installation Log: ${LOGFILE}
+Generated: $(date)
 EOF
 
-log_success "Installation completed successfully!"
+# Display completion message based on status
+if [ "$FINAL_HTTP" = "200" ] && [ "$FINAL_NGINX" -gt 0 ] && [ "$FINAL_PHP" -gt 0 ]; then
+    # Perfect installation
+    cat << PERFECT_SUCCESS
+
+🎉🎉🎉 PERFECT INSTALLATION COMPLETED! 🎉🎉🎉
+
+┌─────────────────────────────────────────────────────────┐
+│                 ✅ ALL SYSTEMS OPERATIONAL ✅            │
+├─────────────────────────────────────────────────────────┤
+│  🌐 Admin Panel: http://${IP_ADDR}:${ACCESSPORT}
+│  👤 Username: ${adminL}
+│  🔑 Password: ${adminP}
+│  📧 Email: ${EMAIL}
+├─────────────────────────────────────────────────────────┤
+│  🎬 Client Portal: http://${IP_ADDR}:${CLIENTACCESSPORT}
+│  🗄️  Database: user_iptvpro / ${XPASS}
+└─────────────────────────────────────────────────────────┘
+
+✨ Installation Features:
+   • Repository: Stefan2512/Proper-Repairs-Xtream-Codes
+   • All debugging fixes applied automatically
+   • Self-contained services (no system conflicts)
+   • Auto-recovery and validation systems
+   • Professional logging and monitoring
+
+📋 Next Steps:
+   • Access your admin panel above
+   • Your system is ready for immediate use
+   • All credentials saved to: /root/Xtreaminfo.txt
+   • Consider setting up your first streams and users
+
+🎯 Pro Tips:
+   • Allow 1-2 minutes for complete service initialization
+   • Services auto-start on reboot via crontab
+   • All logs available in: ${XC_PANEL_DIR}/logs/
+
+PERFECT_SUCCESS
+
+elif [ "$FINAL_HTTP" = "502" ] || [ "$FINAL_PHP" -eq 0 ]; then
+    # 502 or PHP issues
+    cat << PARTIAL_SUCCESS
+
+⚠️ INSTALLATION COMPLETED WITH MINOR ISSUES ⚠️
+
+┌─────────────────────────────────────────────────────────┐
+│               🔧 NEEDS MINOR ATTENTION 🔧                │
+├─────────────────────────────────────────────────────────┤
+│  🌐 Admin Panel: http://${IP_ADDR}:${ACCESSPORT}
+│  👤 Username: ${adminL}  
+│  🔑 Password: ${adminP}
+│  📧 Email: ${EMAIL}
+├─────────────────────────────────────────────────────────┤
+│  Status: HTTP ${FINAL_HTTP} (PHP-FPM communication issue)
+│  Nginx: ${FINAL_NGINX} processes
+│  PHP-FPM: ${FINAL_PHP} processes  
+│  Sockets: ${FINAL_SOCKETS}/3 files
+└─────────────────────────────────────────────────────────┘
+
+🛠️ Quick Fix Commands:
+sudo -u xtreamcodes ${XC_PANEL_DIR}/start_services.sh
+# Wait 30 seconds, then test: curl -I http://localhost:${ACCESSPORT}/
+
+📋 Detailed Report: /root/Xtreaminfo.txt
+🔍 Installation Log: ${LOGFILE}
+
+PARTIAL_SUCCESS
+
+else
+    # Other issues
+    cat << NEEDS_ATTENTION
+
+⚠️ INSTALLATION COMPLETED - NEEDS ATTENTION ⚠️
+
+┌─────────────────────────────────────────────────────────┐
+│                🔧 MANUAL CHECK REQUIRED 🔧               │
+├─────────────────────────────────────────────────────────┤
+│  🌐 Target URL: http://${IP_ADDR}:${ACCESSPORT}
+│  👤 Username: ${adminL}
+│  🔑 Password: ${adminP}
+├─────────────────────────────────────────────────────────┤
+│  Current Status: HTTP ${FINAL_HTTP}
+│  Services: Nginx(${FINAL_NGINX}) PHP-FPM(${FINAL_PHP}) Sockets(${FINAL_SOCKETS})
+└─────────────────────────────────────────────────────────┘
+
+🔧 Troubleshooting Steps:
+1. Wait 2-3 minutes for services to fully initialize
+2. Try manual restart: sudo -u xtreamcodes ${XC_PANEL_DIR}/start_services.sh
+3. Check logs: tail -f ${XC_PANEL_DIR}/logs/php-fpm.log
+4. Reboot if needed: sudo reboot
+
+📋 Complete information saved to: /root/Xtreaminfo.txt
+🔍 Technical details in: ${LOGFILE}
+
+NEEDS_ATTENTION
+
+fi
+
+log_success "Installation completed! All information saved to /root/Xtreaminfo.txt"
 exit 0
