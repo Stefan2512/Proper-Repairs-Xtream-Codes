@@ -37,7 +37,7 @@ while getopts ":t:a:p:o:c:r:e:m:s:h:" option; do
         r) APACHEACCESSPORT=${OPTARG} ;;
         e) EMAIL=${OPTARG} ;;
         m) PASSMYSQL=${OPTARG} ;;
-        s) silent=yes ;;
+        s) silent=no ;;
         h) echo "Xtream Codes Perfect Installer"
            echo "Usage: $0 [options]"
            echo "  -a  Admin username"
